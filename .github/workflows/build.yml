@@ -30,6 +30,7 @@ jobs:
           deb="$1"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
           test "$(dpkg-deb -f "$deb" Package)" = "com.551uk.stravacompat"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.1.1"
           dpkg-deb -x "$deb" "$RUNNER_TEMP/strava-check"
           dylib="$RUNNER_TEMP/strava-check/var/jb/Library/MobileSubstrate/DynamicLibraries/StravaCompat.dylib"
           filter="$RUNNER_TEMP/strava-check/var/jb/Library/MobileSubstrate/DynamicLibraries/StravaCompat.plist"
@@ -51,7 +52,7 @@ jobs:
           set -euo pipefail
           version="$(sed -n 's/^Version: //p' control)"
           tag="v$version"
-          notes="Experimental iOS 16 Strava 422.0.1 compatibility tweak. App version 486.0.2 and iOS 17.7.2 reporting; login is not yet verified."
+          notes="Experimental crash-mitigation build for Strava 422.0.1. Removes unsafe early hooks; hooks validated isAppVersionValid when signature matches; retains app and header version spoof. iOS spoof off by default. Device startup and login not yet verified."
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" packages/*.deb --clobber
           else

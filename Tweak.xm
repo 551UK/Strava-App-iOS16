@@ -1,98 +1,156 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 #import <substrate.h>
-#import <dlfcn.h>
+#import <string.h>
+#import <stdlib.h>
 
-// App-specific version compatibility experiment; credentials are not touched.
-static NSString *appV = @"486.0.2", *iosV = @"17.7.2", *buildV = nil;
-static BOOL active = YES, osSpoof = YES, headerSpoof = YES;
-static BOOL mainStrava(NSBundle *b) {
-  return b == [NSBundle mainBundle] &&
-    [[b bundleIdentifier] isEqualToString:@"com.strava.stravaride"];
+// Strava 422.0.1 compatibility diagnostic build.
+// No global iOS spoof, CoreFoundation inline hook, token manipulation,
+// server-response modification or subscription bypass.
+static NSBundle *sMainBundle = nil;
+static NSString *sVersion = @"486.0.2";
+static NSString *sIOSVersion = @"17.7.2";
+static BOOL sEnabled = YES;
+static BOOL sLocalCheck = YES;
+static BOOL sHeaderSpoof = YES;
+static BOOL sIOSSpoof = NO;
+
+static NSString *RewrittenHeader(NSString *value, NSString *field) {
+    if (!sEnabled || !sHeaderSpoof ||
+        ![value isKindOfClass:[NSString class]] ||
+        ![field isKindOfClass:[NSString class]]) return value;
+    NSString *key = [field lowercaseString];
+    if (!([key isEqualToString:@"user-agent"] ||
+          [key containsString:@"version"] ||
+          [key containsString:@"strava-client"] ||
+          [key isEqualToString:@"x-app-build"])) return value;
+    NSString *updated = [value stringByReplacingOccurrencesOfString:@"422.0.1"
+                                                           withString:sVersion];
+    return [updated stringByReplacingOccurrencesOfString:@"375.0.0"
+                                              withString:sVersion];
 }
-static NSString *change(NSString *v, NSString *field) {
-  if (!active || !headerSpoof || ![v isKindOfClass:[NSString class]] ||
-      ![field isKindOfClass:[NSString class]]) return v;
-  NSString *name = [field lowercaseString];
-  if (!([name isEqualToString:@"user-agent"] || [name containsString:@"version"] ||
-        [name containsString:@"strava-client"] || [name isEqualToString:@"x-app-build"]))
-    return v;
-  NSString *s = [v stringByReplacingOccurrencesOfString:@"422.0.1" withString:appV];
-  return [s stringByReplacingOccurrencesOfString:@"375.0.0" withString:appV];
+static NSDictionary *RewrittenHeaders(NSDictionary *headers) {
+    if (!sEnabled || !sHeaderSpoof ||
+        ![headers isKindOfClass:[NSDictionary class]]) return headers;
+    NSMutableDictionary *copy = [headers mutableCopy];
+    for (id field in headers) {
+        id value = [headers objectForKey:field];
+        if ([field isKindOfClass:[NSString class]] &&
+            [value isKindOfClass:[NSString class]]) {
+            [copy setObject:RewrittenHeader(value, field) forKey:field];
+        }
+    }
+    return copy;
 }
-static NSDictionary *changeDict(NSDictionary *d) {
-  if (!active || !headerSpoof || ![d isKindOfClass:[NSDictionary class]]) return d;
-  NSMutableDictionary *m = [d mutableCopy];
-  for (id k in d)
-    if ([k isKindOfClass:[NSString class]] && [d[k] isKindOfClass:[NSString class]])
-      m[k] = change(d[k], k);
-  return m;
-}
-%group Version
+
+%group AppBundle
 %hook NSBundle
-- (id)objectForInfoDictionaryKey:(NSString *)k {
-  if (active && mainStrava(self)) {
-    if ([k isEqualToString:@"CFBundleShortVersionString"]) return appV;
-    if (buildV.length && [k isEqualToString:@"CFBundleVersion"]) return buildV;
-  }
-  return %orig;
-}
-- (NSDictionary *)infoDictionary {
-  NSDictionary *d = %orig;
-  if (!active || !mainStrava(self) || !d) return d;
-  NSMutableDictionary *m = [d mutableCopy];
-  m[@"CFBundleShortVersionString"] = appV;
-  if (buildV.length) m[@"CFBundleVersion"] = buildV;
-  return m;
+- (id)objectForInfoDictionaryKey:(NSString *)key {
+    if (sEnabled && self == sMainBundle && [key isKindOfClass:[NSString class]]
+        && [key isEqualToString:@"CFBundleShortVersionString"]) return sVersion;
+    return %orig;
 }
 %end
 %end
-%group OS
-%hook UIDevice
-- (NSString *)systemVersion {
-  if (active && osSpoof) return iosV;
-  return %orig;
-}
-%end
-%end
-%group Headers
+
+%group HttpHeaders
 %hook NSMutableURLRequest
-- (void)setValue:(NSString *)v forHTTPHeaderField:(NSString *)k { %orig(change(v,k),k); }
-- (void)addValue:(NSString *)v forHTTPHeaderField:(NSString *)k { %orig(change(v,k),k); }
-- (void)setAllHTTPHeaderFields:(NSDictionary *)d { %orig(changeDict(d)); }
+- (void)setValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
+    %orig(RewrittenHeader(value, field), field);
+}
+- (void)addValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
+    %orig(RewrittenHeader(value, field), field);
+}
+- (void)setAllHTTPHeaderFields:(NSDictionary *)headers {
+    %orig(RewrittenHeaders(headers));
+}
 %end
 %hook NSURLSessionConfiguration
-- (void)setHTTPAdditionalHeaders:(NSDictionary *)d { %orig(changeDict(d)); }
-%end
-%end
-typedef const void *(*CFGet)(CFBundleRef,CFStringRef);
-static CFGet origCF = NULL;
-static const void *replacementCF(CFBundleRef b, CFStringRef k) {
-  if (active && b == CFBundleGetMainBundle() && k) {
-    if (CFEqual(k,CFSTR("CFBundleShortVersionString"))) return (__bridge const void *)appV;
-    if (buildV.length && CFEqual(k,CFSTR("CFBundleVersion")))
-      return (__bridge const void *)buildV;
-  }
-  return origCF ? origCF(b,k) : NULL;
+- (void)setHTTPAdditionalHeaders:(NSDictionary *)headers {
+    %orig(RewrittenHeaders(headers));
 }
+%end
+%end
+
+%group OptionalIOS
+%hook UIDevice
+- (NSString *)systemVersion {
+    if (sEnabled && sIOSSpoof) return sIOSVersion;
+    return %orig;
+}
+%end
+%end
+
+// Confirmed in the 422.0.1 executable: Swift ObjC proxy
+// Strava.ClientConfigManagerObjcProxy with selector isAppVersionValid.
+// Dynamically validate a zero-argument Boolean method before hooking.
+// Never add a hook when the class/selector/signature is absent.
+static BOOL (*sOriginalIsAppVersionValid)(id, SEL) = NULL;
+static BOOL AlwaysValidVersion(id receiver, SEL selector) {
+    if (sEnabled && sLocalCheck) return YES;
+    return sOriginalIsAppVersionValid ?
+           sOriginalIsAppVersionValid(receiver, selector) : YES;
+}
+static void InstallLocalCheckHook(void) {
+    if (!sLocalCheck) return;
+    Class cls = objc_lookUpClass("_TtC6Strava28ClientConfigManagerObjcProxy");
+    if (!cls) cls = objc_lookUpClass("Strava.ClientConfigManagerObjcProxy");
+    if (!cls) {
+        NSLog(@"[StravaCompat] Local check class not found; skipping");
+        return;
+    }
+    SEL sel = sel_registerName("isAppVersionValid");
+    Method method = class_getInstanceMethod(cls, sel);
+    if (!method || method_getNumberOfArguments(method) != 2) {
+        NSLog(@"[StravaCompat] Local check selector/signature missing; skipping");
+        return;
+    }
+    char *resultType = method_copyReturnType(method);
+    BOOL compatible = resultType && (strcmp(resultType, "B") == 0 ||
+                                      strcmp(resultType, "c") == 0 ||
+                                      strcmp(resultType, "C") == 0);
+    if (resultType) free(resultType);
+    if (!compatible) {
+        NSLog(@"[StravaCompat] Local check return type not Boolean; skipping");
+        return;
+    }
+    MSHookMessageEx(cls, sel, (IMP)AlwaysValidVersion,
+                    (IMP *)&sOriginalIsAppVersionValid);
+    NSLog(@"[StravaCompat] Installed guarded isAppVersionValid hook");
+}
+
 %ctor {
-  @autoreleasepool {
-    if (![[[NSBundle mainBundle] bundleIdentifier] isEqualToString:@"com.strava.stravaride"]) return;
-    NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:
-      @"/var/jb/Library/Preferences/com.551uk.stravacompat.plist"];
-    if ([p[@"Enabled"] respondsToSelector:@selector(boolValue)]) active = [p[@"Enabled"] boolValue];
-    if ([p[@"SpoofIOSVersion"] respondsToSelector:@selector(boolValue)]) osSpoof = [p[@"SpoofIOSVersion"] boolValue];
-    if ([p[@"SpoofHeaderVersions"] respondsToSelector:@selector(boolValue)]) headerSpoof = [p[@"SpoofHeaderVersions"] boolValue];
-    if ([p[@"AppVersion"] isKindOfClass:[NSString class]] && [p[@"AppVersion"] length]) appV = [p[@"AppVersion"] copy];
-    if ([p[@"IOSVersion"] isKindOfClass:[NSString class]] && [p[@"IOSVersion"] length]) iosV = [p[@"IOSVersion"] copy];
-    if ([p[@"BuildNumber"] isKindOfClass:[NSString class]] && [p[@"BuildNumber"] length]) buildV = [p[@"BuildNumber"] copy];
-    if (!active) return;
-    %init(Version);
-    if (osSpoof) %init(OS);
-    if (headerSpoof) %init(Headers);
-    void *s = dlsym(RTLD_DEFAULT,"CFBundleGetValueForInfoDictionaryKey");
-    if (s) MSHookFunction(s,(void *)replacementCF,(void **)&origCF);
-    NSLog(@"[StravaCompat] Version %@, iOS %@", appV, iosV);
-  }
+    @autoreleasepool {
+        // The injection filter already scopes this tweak to Strava.
+        sMainBundle = [NSBundle mainBundle];
+        if (![[sMainBundle bundleIdentifier] isEqualToString:@"com.strava.stravaride"])
+            return;
+
+        NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:
+            @"/var/jb/Library/Preferences/com.551uk.stravacompat.plist"];
+        if ([p[@"Enabled"] respondsToSelector:@selector(boolValue)])
+            sEnabled = [p[@"Enabled"] boolValue];
+        if ([p[@"EnableLocalVersionCheck"] respondsToSelector:@selector(boolValue)])
+            sLocalCheck = [p[@"EnableLocalVersionCheck"] boolValue];
+        if ([p[@"SpoofHeaderVersions"] respondsToSelector:@selector(boolValue)])
+            sHeaderSpoof = [p[@"SpoofHeaderVersions"] boolValue];
+        if ([p[@"SpoofIOSVersion"] respondsToSelector:@selector(boolValue)])
+            sIOSSpoof = [p[@"SpoofIOSVersion"] boolValue];
+        if ([p[@"AppVersion"] isKindOfClass:[NSString class]] && [p[@"AppVersion"] length])
+            sVersion = [p[@"AppVersion"] copy];
+        if ([p[@"IOSVersion"] isKindOfClass:[NSString class]] && [p[@"IOSVersion"] length])
+            sIOSVersion = [p[@"IOSVersion"] copy];
+        if (!sEnabled) {
+            NSLog(@"[StravaCompat] Disabled by preferences");
+            return;
+        }
+
+        %init(AppBundle);
+        if (sHeaderSpoof) %init(HttpHeaders);
+        if (sIOSSpoof) %init(OptionalIOS);
+        InstallLocalCheckHook();
+        NSLog(@"[StravaCompat] v0.1.1 ready; version=%@ local=%d headers=%d iOS=%d",
+              sVersion, sLocalCheck, sHeaderSpoof, sIOSSpoof);
+    }
 }
