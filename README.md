@@ -10,7 +10,7 @@ The Strava 422.0.1 executable contains the ObjC-visible Swift class **Strava.Cli
 
 The same executable includes ClientStartUpConfiguration with a GraphQL query for clientConfiguration.forceUpdate. This is a *server-returned* requirement, and local validation spoofing cannot guarantee that the server will accept a 422 authentication client. This build does not falsify authentication results, signatures or responses.
 
-**Login and startup are not yet confirmed on an iPhone.** The GitHub build verifies compilation and package integrity, not successful login.
+**Test status:** A user reports that v0.1.1 works on their iOS 16 device. This is a device report, not an independent verification of every Strava account or server endpoint. The GitHub build separately verifies compilation and package integrity.
 
 ## Install and test
 
@@ -23,3 +23,7 @@ Copy the sample com.551uk.stravacompat.plist to /var/jb/Library/Preferences/com.
 ## Build
 
 GitHub Actions builds and validates a rootless Theos .deb from main and publishes it to Releases. This repository distributes **no Strava IPA**, and includes no premium-unlock code.
+
+## Older 375.0.0 modified IPA
+
+The user-supplied StravaPremium 375.0.0 IPA includes third-party `StravaPatch.dylib` and `libsubstrate.dylib`. These are **not part of StravaCompat**. `StravaPatch.dylib` references `@executable_path/Frameworks/libsubstrate.dylib` and appears connected to subscription-related modifications. Its runtime compatibility with Strava 422.0.1, distribution rights, and safety are not established. To preserve the working v0.1.1 login tweak, do not merge those unverified binaries into the public rootless release.
