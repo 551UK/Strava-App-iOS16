@@ -9,6 +9,11 @@
 // Local preview of geometry already delivered in SuggestedRoutes GraphQL.
 // There is no entitlement mutation, GraphQL replay, network proxy or bypass.
 static NSArray<NSDictionary *> *sRoutePreviews;
+static CFAbsoluteTime sNativeRouteAttempt=0;
+extern "C" BOOL SSCNativeRouteOpening(void) {
+    return sNativeRouteAttempt>0 && CFAbsoluteTimeGetCurrent()-sNativeRouteAttempt<6.0;
+}
+
 
 static id RValue(id source, NSString *key) {
     return [source isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)source objectForKey:key] : nil;
@@ -453,6 +458,7 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
         [url.scheme.lowercaseString isEqualToString:@"strava"]) {
         // This is a native deep link that Strava itself recognises in all
         // three provided IPAs. Do not rewrite it to a web URL.
+        sNativeRouteAttempt=CFAbsoluteTimeGetCurrent();
         [[UIApplication sharedApplication] openURL:url options:@{}
           completionHandler:^(BOOL opened) {
             NSLog(@"[StravaSearch16] Native route URL dispatched: %@",opened?@"yes":@"no");
