@@ -3,24 +3,24 @@
 <plist version="1.0"><dict><key>title</key><string>StravaCompat</string><key>items</key><array>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Strava 422.0.1</string>
 <key>footerText</key><string>Choose the version Strava reports. Fully close and reopen Strava after changing settings.</string></dict>
-<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>Enabled</string>
+<dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Enabled</string>
 <key>key</key><string>Enabled</string><key>default</key><true/></dict>
-<dict><key>cell</key><string>PSEditTextCell</string><key>label</key><string>Strava Version</string>
+<dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Strava Version</string>
 <key>key</key><string>AppVersion</string><key>default</key><string>486.0.2</string>
 <key>placeholder</key><string>486.0.2</string>
 <key>autocapitalizationType</key><integer>0</integer>
 <key>autocorrectionType</key><integer>1</integer></dict>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Compatibility</string>
 <key>footerText</key><string>Both options are enabled by default to preserve the current Strava login behaviour.</string></dict>
-<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>Local Version Check</string>
+<dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Local Version Check</string>
 <key>key</key><string>EnableLocalVersionCheck</string><key>default</key><true/></dict>
-<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>Version Headers</string>
+<dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Version Headers</string>
 <key>key</key><string>SpoofHeaderVersions</string><key>default</key><true/></dict>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Optional iOS Spoof</string>
 <key>footerText</key><string>Off by default. Reporting newer iOS versions can trigger unavailable APIs on iOS 16.</string></dict>
-<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>Spoof iOS Version</string>
+<dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Spoof iOS Version</string>
 <key>key</key><string>SpoofIOSVersion</string><key>default</key><false/></dict>
-<dict><key>cell</key><string>PSEditTextCell</string><key>label</key><string>iOS Version</string>
+<dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>iOS Version</string>
 <key>key</key><string>IOSVersion</string><key>default</key><string>17.7.2</string>
 <key>placeholder</key><string>17.7.2</string>
 <key>autocapitalizationType</key><integer>0</integer>
