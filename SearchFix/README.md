@@ -1,13 +1,25 @@
-# Strava Search iOS16
+# Strava Search iOS16 — Diagnostics
 
-Separate rootless compatibility add-on for **Strava 422.0.1 on iOS 16**.
+A separate diagnostics add-on for **Strava 422.0.1 on iOS 16**, designed for two failures: **Maps → Search locations → Try Again** and **tapping a route → Try Again**.
 
-If tapping **Maps → Search locations** immediately produces a blank **Try Again** screen, the tweak detects the failed search after that specific tap and presents a native iOS MapKit location search. You can autocomplete places, view a map pin, copy latitude/longitude, and open the location in Apple Maps. This avoids the failing Strava search screen rather than pretending that Strava's older API works.
+**What it records**
+- Screen controller transitions and the presence of the **Try Again** error.
+- Network request host, broad category (routes, searches, maps, GraphQL), HTTP status, transport error domain and numeric code.
+- WebView load attempts and task completion results, including delegate-based URLSession tasks where observable.
 
-The addon deliberately does **not** alter StravaCompat, login, authentication headers, route subscriptions, or Strava's server responses. It does not currently hand selected coordinates back into Strava's Mapbox map; that integration needs an additional, app-specific test.
+**Privacy:** No passwords, tokens, cookies, authorization headers, search text, route titles, precise coordinates, request or response bodies, or URL query parameters are logged. The diagnostic text file is stored in Strava's own app container.
 
-Install through Sileo or Zebra. Ensure Choicy allows injection for Strava, then fully close and reopen it. Open the regular Maps → Search locations control. On the exact Try Again failure, MapKit search appears. Use Done to return to the original app.
+**How to test**
+1. Install the standalone .deb with Sileo or Zebra, alongside your working StravaCompat.
+2. Fully close and reopen Strava.
+3. Tap **Maps → Search locations** and reproduce **Try Again**.
+4. Tap **Share Diagnostics** on that error screen and save/send `diagnostics.txt`.
+5. Close the error, tap a route and reproduce the second **Try Again**.
+6. Use **Share Diagnostics** again; the file will contain both failures.
 
-The source targets only `com.strava.stravaride` and is packaged as `com.551uk.stravasearch16`. For compile: `make clean package FINALPACKAGE=1` with Theos and the iOS SDK installed.
+The button only appears while a detectable **Try Again** screen is visible. If it does not appear, find the file using Filza under:
+`/var/mobile/Containers/Data/Application/<Strava UUID>/Library/Caches/StravaSearch16/diagnostics.txt`.
 
-**Testing status:** built against the Strava 422.0.1 user-provided IPA's known screen labels; on-device behaviour is not verified yet. Please test first before relying on this for offline navigation.
+The MapKit search fallback code is retained but **disabled by default** so it cannot hide the original error while capturing evidence. This build does not yet repair the original Strava search/route service, and it does not change StravaCompat's login hooks.
+
+Build: `cd SearchFix && make clean package FINALPACKAGE=1` with Theos and iOS SDK.

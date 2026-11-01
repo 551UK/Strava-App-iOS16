@@ -10,6 +10,8 @@
 
 static BOOL sArmed = NO;
 static BOOL sFallbackVisible = NO;
+// Keep fallback dormant during error diagnosis so its overlay cannot hide failures.
+static BOOL sEnableFallback = NO;
 static CFAbsoluteTime sArmedAt = 0;
 @class SSCPlacePreview;
 
@@ -227,6 +229,7 @@ static UIViewController *TopController(UIViewController *controller) {
     return controller;
 }
 static void CheckSearchFailure(void) {
+    if (!sEnableFallback) return;
     if (sFallbackVisible || !sArmed || CFAbsoluteTimeGetCurrent()-sArmedAt>12) return;
     UIWindow *window=ActiveWindow();
     if (!window || !window.rootViewController) return;
