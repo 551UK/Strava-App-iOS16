@@ -3,6 +3,8 @@
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 #import <substrate.h>
+#include <dlfcn.h>
+#include <stdint.h>
 
 // Optional, version-only request identity adapter for route/search requests.
 extern "C" NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *));
@@ -525,7 +527,60 @@ static SSDiagnostics *SDiagnostics;
     return %orig;
 }
 %end
+// Capture the precise call site that presents Strava's checkout from a route
+// selection. Full account data/URL/coordinates are never inspected or logged.
+// Mach-O relative offsets can be located in the supplied decrypted 422 binary.
+static NSUInteger sCheckoutPresentCount=0;
+static NSString *SVCName(UIViewController *vc) {
+    NSString *c=vc ? NSStringFromClass([vc class]) : @"nil";
+    if (c.length>180) c=[c substringToIndex:180];
+    return c;
+}
+static void SLogCheckoutPresentation(UIViewController *source,UIViewController *target,BOOL animated) {
+    sCheckoutPresentCount++;
+    if (sCheckoutPresentCount>14) return;
+    UIViewController *selected=nil;
+    if ([source isKindOfClass:[UITabBarController class]])
+        selected=((UITabBarController *)source).selectedViewController;
+    UIViewController *visible=[selected isKindOfClass:[UINavigationController class]] ?
+        ((UINavigationController *)selected).visibleViewController : selected;
+    SLog([NSString stringWithFormat:
+        @"CHECKOUT_PRESENT begin=%lu presenter=%@ destination=%@ selected=%@ visible=%@ animated=%d",
+        (unsigned long)sCheckoutPresentCount,SVCName(source),SVCName(target),
+        SVCName(selected),SVCName(visible),animated]);
+    NSArray<NSNumber *> *addresses=[NSThread callStackReturnAddresses];
+    NSUInteger index=0;
+    for (NSNumber *number in addresses) {
+        if (index>=32) break;
+        uintptr_t pc=(uintptr_t)[number unsignedLongLongValue];
+        Dl_info info={0};
+        if (pc && dladdr((void *)pc,&info) && info.dli_fname && info.dli_fbase) {
+            NSString *binary=[[@(info.dli_fname) lastPathComponent] copy] ?: @"unknown";
+            // Only image names, offsets and static function symbols leave memory.
+            if (binary.length>85) binary=[binary substringToIndex:85];
+            NSString *symbol=info.dli_sname ? @(info.dli_sname) : @"unknown";
+            if (symbol.length>180) symbol=[symbol substringToIndex:180];
+            NSUInteger offset=(NSUInteger)(pc-(uintptr_t)info.dli_fbase);
+            SLog([NSString stringWithFormat:
+               @"CHECKOUT_FRAME event=%lu n=%lu image=%@ offset=0x%lx function=%@",
+               (unsigned long)sCheckoutPresentCount,(unsigned long)index,
+               binary,(unsigned long)offset,symbol]);
+        }
+        index++;
+    }
+    SLog([NSString stringWithFormat:@"CHECKOUT_PRESENT end=%lu",
+       (unsigned long)sCheckoutPresentCount]);
+}
+
 %hook UIViewController
+- (void)presentViewController:(UIViewController *)controllerToPresent
+                     animated:(BOOL)animated completion:(void (^)(void))completion {
+    NSString *destination=NSStringFromClass([controllerToPresent class]);
+    if ([destination containsString:@"CheckoutLoadingView"] ||
+        [destination containsString:@"Checkout19Checkout"])
+        SLogCheckoutPresentation(self,controllerToPresent,animated);
+    %orig;
+}
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     NSString *name=NSStringFromClass([self class]);
@@ -547,7 +602,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.8.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 0.9.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];

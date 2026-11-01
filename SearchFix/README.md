@@ -1,34 +1,28 @@
-# Strava Search iOS16 — 0.8.0 downloaded-route preview
+# Strava Search iOS16 v0.9.0 — find the checkout caller
 
-This updates the existing rootless package **com.551uk.stravasearch16** for Strava 422.0.1 on iOS 16. Keep **StravaCompat → Version Headers OFF**; that setting was confirmed to resolve the original Try Again errors. The login tweak is unchanged.
+The screenshot from Flex confirms `STRVTabBarController.presentedViewController` is `UIHostingController<Checkout.CheckoutLoadingView<...>>`. It establishes which view is shown, but **not** the Swift/Objective-C method that requested it.
 
-## 0.8.0: use route geometry already downloaded by Strava
+## New instrumentation
 
-Both supplied Strava 422.0.1 and Strava 487.0.0 decrypted app binaries include the **SuggestedRoutes** GraphQL query. It requests `routeUrl`, `title`, `length`, and `routePolylineData { legs { paths { polyline { data } } } }`. Your logs show 5 and 15 SuggestedRoutes nodes being delivered.
+On every presentation of `CheckoutLoadingView`, this build writes a bounded backtrace:
 
-Previous versions assumed `routeUrl` must be an HTTPS public web URL and rejected everything else. The zero count therefore did **not** mean there were no suggested routes. Version 0.8.0 reads the encoded polyline points **already included in the successful response**, decodes them locally using the standard precision-5 polyline format, and draws them on an independent read-only **MapKit** map. It does not request further subscriber-only route data or modify checkout/entitlements.
+- `CHECKOUT_PRESENT`: presenter, destination, current tab/nav controller and visible view class
+- `CHECKOUT_FRAME`: in-process image name, Mach-O **image-relative instruction offset**, and static symbol if exported
+- `CHECKOUT_PRESENT end`: trace delimiter
 
-The transparent overlay (above Strava modal screens) shows **Route previews (N)** at top left and **Share Log** at top right. Tap Route previews to choose from the downloaded routes, then view the path on a native MapKit map. If a route has no decodable geometry but a valid public Strava link, it can be opened in the Safari view. Strava's original offer may still appear underneath; use Strava's native X if needed. The redundant "Close offer" control has been removed.
+These offsets can be matched against the user-supplied **decrypted Strava 422.0.1 executable** and compared with its corresponding route/upsell implementation in 487.0.0. Capturing a call stack at the actual presentation time is more useful than scanning static class names or looking at Flex's generic hierarchy alone. Up to 14 presentations and 32 frames each are recorded to bound the log.
 
-The diagnostic log now includes `ROUTE_PREVIEW_SCAN nodes=N geometry=N publicLinks=N unrecognisedLinks=N missingLinks=N accepted=N`. No route titles, coordinates or URL contents are logged.
+The route-preview experiment from 0.8.0 remains, including `ROUTE_PREVIEW_SCAN`. A zero counter can indicate the free account received metadata without decodable geometry; logs reveal which fields are missing.
+
+**No account entitlement, response, route navigation or checkout state is modified.** The new hook forwards to the original UIKit method. There is no fabricated trial, no purchase interception and no suppression of subscription UI. The separate StravaCompat login tweak is unchanged.
 
 ## Testing
 
-1. Install 0.8.0 over 0.7.0. Keep StravaCompat and keep **Version Headers OFF**.
-2. Force-close Strava, reopen and let Maps suggested-route results load.
-3. Look for **Route previews (N)** on the overlay. Tap to see a list and choose a route.
-4. Check that the displayed path and approximate distance match the selected listed route.
-5. Test tapping the usual card and Search locations, then share the diagnostic log.
+1. Install v0.9.0 over v0.8.0. In Settings → StravaCompat, leave **Version Headers OFF**.
+2. Force-close and reopen Strava, go to Maps, and tap one suggested route. Let the trial offer appear.
+3. Tap **Share Log** on the overlay and send `diagnostics.txt` (no more Flex screenshots needed for this stage).
+4. Look for the `CHECKOUT_FRAME` section and `ROUTE_PREVIEW_SCAN` entries. These identify the call site and whether route geometry is available.
 
-**Limitations:** This is a read-only preview of data Strava already returned; it is **not** a native route detail view, route navigation, downloading, or a subscription bypass. It does not guarantee that routes are available in every response. The app's checkout presentation is intentionally left intact.
+Diagnostic file: inside Strava sandbox, `Library/Caches/StravaSearch16/diagnostics.txt`.
 
-## Relevant IPA comparison
-
-- Strava 422.0.1 and 487.0.0 both contain a `FlyoverGeometryQuery` accepting a `routeUrl`, and both contain the SuggestedRoutes geometry fields. No evidence establishes that replaying `FlyoverGeometryQuery` succeeds for a free account.
-- Older StravaPremium 375.0.0 bundles `StravaPatch.dylib` with networking and subscription-related hooks. There is no demonstrated route-specific fix we can safely copy from it.
-
-## Diagnostics location
-
-Strava container → `Library/Caches/StravaSearch16/diagnostics.txt`.
-
-Build: `cd SearchFix && make clean package FINALPACKAGE=1`.
+This is a tracing build, not a completed native route viewer. The trial screen may still appear. Read-only MapKit previews depend on geometry actually returned by Strava.
