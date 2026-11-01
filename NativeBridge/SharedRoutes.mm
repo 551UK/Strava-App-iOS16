@@ -168,6 +168,31 @@ extern "C" void SSCSharedRoutesCaptureJSON(id body,void (*logger)(NSString *)) {
         if (candidates.count) sRoutePreviews=[candidates copy];
     });
 }
+// Only show Strava suggestions whose decoded geometry is actually local to the
+// selected area. An older response from another city must never be reused as
+// "nearby" simply because it is the last received response.
+extern "C" NSArray<NSDictionary *> *SSCSharedRoutesNear(CLLocationCoordinate2D center,double radiusMetres) {
+    if (!CLLocationCoordinate2DIsValid(center) || radiusMetres<=0) return @[];
+    CLLocation *target=[[CLLocation alloc] initWithLatitude:center.latitude longitude:center.longitude];
+    NSMutableArray<NSDictionary *> *results=[NSMutableArray array];
+    for (NSDictionary *entry in [sRoutePreviews copy] ?: @[]) {
+        BOOL local=NO;
+        for (NSArray<NSValue *> *part in entry[@"segments"]) {
+            if (![part isKindOfClass:[NSArray class]]) continue;
+            NSUInteger stride=MAX((NSUInteger)1,part.count/100);
+            for (NSUInteger i=0;i<part.count;i+=stride) {
+                CLLocationCoordinate2D c=[part[i] MKCoordinateValue];
+                if (!CLLocationCoordinate2DIsValid(c)) continue;
+                CLLocation *p=[[CLLocation alloc] initWithLatitude:c.latitude longitude:c.longitude];
+                if ([p distanceFromLocation:target]<=radiusMetres) { local=YES; break; }
+            }
+            if (local) break;
+        }
+        if (local) [results addObject:entry];
+    }
+    return results;
+}
+
 extern "C" NSUInteger SSCSharedRoutesCount(void) {
     return sRoutePreviews.count;
 }
