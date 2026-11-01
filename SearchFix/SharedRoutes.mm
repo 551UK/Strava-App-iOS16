@@ -11,15 +11,42 @@ static NSArray<NSDictionary *> *sRoutePreviews;
 static id RValue(id source, NSString *key) {
     return [source isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)source objectForKey:key] : nil;
 }
-static NSURL *RPublicURL(id raw) {
-    if (![raw isKindOfClass:[NSString class]] || [raw length]>2048) return nil;
-    NSURLComponents *c=[NSURLComponents componentsWithString:raw];
+// Strava 375/422/487 all declare their own route-detail URL destinations.
+// These are NOT browser URLs; retain routeUrl supplied by Strava verbatim.
+static NSString *RURLKind(id raw) {
+    if (![raw isKindOfClass:[NSString class]] || ![raw length]) return @"missing";
+    NSString *value=(NSString *)raw;
+    if (value.length>2048) return @"oversize";
+    NSURLComponents *c=[NSURLComponents componentsWithString:value];
+    NSString *scheme=c.scheme.lowercaseString ?: @"";
     NSString *host=c.host.lowercaseString ?: @"";
-    NSString *path=c.path.lowercaseString ?: @"";
-    if (![c.scheme.lowercaseString isEqualToString:@"https"] ||
-        !([host isEqualToString:@"strava.com"] || [host hasSuffix:@".strava.com"]) ||
-        ![path containsString:@"/routes/"]) return nil;
-    return c.URL;
+    NSString *p=c.path.lowercaseString ?: @"";
+    if ([scheme isEqualToString:@"strava"] &&
+        ([host isEqualToString:@"route"] || [host isEqualToString:@"routes"]) &&
+        p.length>1) return @"strava-deep-link";
+    if ([scheme isEqualToString:@"https"] &&
+        ([host isEqualToString:@"strava.com"] || [host hasSuffix:@".strava.com"]) &&
+        [p containsString:@"/routes/"]) return @"https-strava-route";
+    if (!scheme.length &&
+        ([p hasPrefix:@"/route/suggested/"] || [p hasPrefix:@"/route/"] ||
+         [p hasPrefix:@"/routes/"])) return @"relative-route";
+    // Opaque routeUrl values must not be converted into arbitrary route IDs.
+    if (!scheme.length && [value rangeOfString:@"/"].location==NSNotFound)
+        return @"opaque";
+    return @"other-url";
+}
+static NSURL *RNativeOrPublicURL(id raw) {
+    NSString *kind=RURLKind(raw);
+    if ([kind isEqualToString:@"strava-deep-link"] ||
+        [kind isEqualToString:@"https-strava-route"])
+        return [NSURL URLWithString:(NSString *)raw];
+    if ([kind isEqualToString:@"relative-route"]) {
+        NSString *relative=(NSString *)raw;
+        NSString *native=[@"strava://" stringByAppendingString:
+             [relative hasPrefix:@"/"] ? [relative substringFromIndex:1] : relative];
+        return [NSURL URLWithString:native];
+    }
+    return nil;
 }
 // Encoded polyline decoder. Coordinates remain in process memory only.
 static NSArray<NSValue *> *RPolyline(id value) {
@@ -57,6 +84,9 @@ static NSArray<NSValue *> *RPolyline(id value) {
 static NSArray<NSArray<NSValue *> *> *RSegments(id node) {
     id data=RValue(node,@"routePolylineData");
     id legs=RValue(data,@"legs");
+    // An independently observed 422.0.1 SuggestedRoutes payload also
+    // contains legs directly at node level. Accept either schema.
+    if (![legs isKindOfClass:[NSArray class]]) legs=RValue(node,@"legs");
     if (![legs isKindOfClass:[NSArray class]]) return nil;
     NSMutableArray *parts=[NSMutableArray array];
     for (id leg in (NSArray *)legs) {
@@ -78,16 +108,25 @@ extern "C" void SSCSharedRoutesCaptureJSON(id body,void (*logger)(NSString *)) {
     id nodes=RValue(routes,@"nodes");
     if (![nodes isKindOfClass:[NSArray class]]) return;
     NSMutableArray *candidates=[NSMutableArray array];
-    NSUInteger validLinks=0, invalidLinks=0, lines=0, missing=0;
+    NSUInteger publicLinks=0, nativeLinks=0, relativeLinks=0, opaque=0, unknownLinks=0;
+    NSUInteger lines=0, missing=0, flatLegs=0, nestedLegs=0;
     for (id node in (NSArray *)nodes) {
         if (![node isKindOfClass:[NSDictionary class]]) continue;
-        NSURL *url=RPublicURL(RValue(node,@"routeUrl"));
-        if (url) validLinks++;
-        else if (RValue(node,@"routeUrl")) invalidLinks++;
-        else missing++;
+        id raw=RValue(node,@"routeUrl");
+        NSString *kind=RURLKind(raw);
+        NSURL *url=RNativeOrPublicURL(raw);
+        if ([kind isEqualToString:@"https-strava-route"]) publicLinks++;
+        else if ([kind isEqualToString:@"strava-deep-link"]) nativeLinks++;
+        else if ([kind isEqualToString:@"relative-route"]) relativeLinks++;
+        else if ([kind isEqualToString:@"opaque"]) opaque++;
+        else if ([kind isEqualToString:@"missing"]) missing++;
+        else unknownLinks++;
+        if ([RValue(node,@"legs") isKindOfClass:[NSArray class]]) flatLegs++;
+        if ([RValue(RValue(node,@"routePolylineData"),@"legs") isKindOfClass:[NSArray class]]) nestedLegs++;
         NSArray *segments=RSegments(node);
         if (segments.count) lines++;
-        if (!segments.count && !url) continue;
+        // Show all returned routes (including ones whose link shape needs
+        // another adapter). Never synthesise an entitlement or a route ID.
         id title=RValue(node,@"title");
         if (![title isKindOfClass:[NSString class]] || ![title length])
             title=@"Suggested route";
@@ -96,14 +135,18 @@ extern "C" void SSCSharedRoutesCaptureJSON(id body,void (*logger)(NSString *)) {
         NSNumber *metres=([length isKindOfClass:[NSNumber class]] &&
           [length doubleValue]>=0 && [length doubleValue]<1000000) ? length : @0;
         [candidates addObject:@{@"title":title, @"length":metres,
-          @"segments":segments ?: @[],@"url":url ?: [NSNull null]}];
+          @"segments":segments ?: @[],@"url":url ?: [NSNull null],@"urlKind":kind}];
         if (candidates.count>=40) break;
     }
-    if (logger) logger([NSString stringWithFormat:
-       @"ROUTE_PREVIEW_SCAN nodes=%lu geometry=%lu publicLinks=%lu unrecognisedLinks=%lu missingLinks=%lu accepted=%lu",
-       (unsigned long)[(NSArray *)nodes count],(unsigned long)lines,
-       (unsigned long)validLinks,(unsigned long)invalidLinks,(unsigned long)missing,
-       (unsigned long)candidates.count]);
+    if (logger) {
+        logger([NSString stringWithFormat:
+           @"NATIVE_ROUTE_SCAN nodes=%lu geometry=%lu flatLegs=%lu nestedLegs=%lu nativeLinks=%lu relativeLinks=%lu publicLinks=%lu opaque=%lu unknown=%lu missing=%lu retained=%lu",
+           (unsigned long)[(NSArray *)nodes count],(unsigned long)lines,
+           (unsigned long)flatLegs,(unsigned long)nestedLegs,
+           (unsigned long)nativeLinks,(unsigned long)relativeLinks,
+           (unsigned long)publicLinks,(unsigned long)opaque,(unsigned long)unknownLinks,
+           (unsigned long)missing,(unsigned long)candidates.count]);
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         if (candidates.count) sRoutePreviews=[candidates copy];
     });
@@ -198,13 +241,24 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
     NSArray *parts=item[@"segments"];
     cell.detailTextLabel.text=[NSString stringWithFormat:@"%.2f km · %@",
        [item[@"length"] doubleValue]/1000.0,
-       parts.count ? @"map preview" : @"public web link"];
+       parts.count ? @"map preview" : ([item[@"url"] isKindOfClass:[NSURL class]] ? @"native Strava link" : item[@"urlKind"])];
     cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
     [tableView deselectRowAtIndexPath:path animated:YES];
     NSDictionary *item=self.routes[path.row];
+    NSURL *url=item[@"url"];
+    if ([url isKindOfClass:[NSURL class]] &&
+        [url.scheme.lowercaseString isEqualToString:@"strava"]) {
+        // This is a native deep link that Strava itself recognises in all
+        // three provided IPAs. Do not rewrite it to a web URL.
+        [[UIApplication sharedApplication] openURL:url options:@{}
+          completionHandler:^(BOOL opened) {
+            NSLog(@"[StravaSearch16] Native route URL dispatched: %@",opened?@"yes":@"no");
+          }];
+        return;
+    }
     if ([item[@"segments"] count]) {
         SRoutePreview *viewer=[SRoutePreview new];
         viewer.route=item;
@@ -214,11 +268,18 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
         [self presentViewController:nav animated:YES completion:nil];
         return;
     }
-    NSURL *url=item[@"url"];
-    if ([url isKindOfClass:[NSURL class]]) {
+    if ([url isKindOfClass:[NSURL class]] &&
+        [url.scheme.lowercaseString isEqualToString:@"https"]) {
         SFSafariViewController *browser=[[SFSafariViewController alloc] initWithURL:url];
         [self presentViewController:browser animated:YES completion:nil];
+        return;
     }
+    UIAlertController *notice=[UIAlertController alertControllerWithTitle:@"Route data found"
+      message:@"Strava returned this route, but its routeUrl is an opaque or unsupported format. The tweak will not invent a destination or route identifier."
+      preferredStyle:UIAlertControllerStyleAlert];
+    [notice addAction:[UIAlertAction actionWithTitle:@"OK"
+      style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:notice animated:YES completion:nil];
 }
 @end
 extern "C" void SSCSharedRoutesShow(UIViewController *presenter) {
