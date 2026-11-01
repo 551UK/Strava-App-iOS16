@@ -13,6 +13,7 @@ static BOOL sFallbackVisible = NO;
 // Keep fallback dormant during error diagnosis so its overlay cannot hide failures.
 
 static CFAbsoluteTime sArmedAt = 0;
+extern "C" void SSCShowNearbyWalksFromItem(UIViewController *presenter, MKMapItem *item);
 @class SSCPlacePreview;
 
 @interface SSCSearchController : UITableViewController <UISearchBarDelegate, MKLocalSearchCompleterDelegate>
@@ -144,8 +145,7 @@ static CFAbsoluteTime sArmedAt = 0;
             MKMapItem *item=response.mapItems.firstObject;
             if (item) {
                 [strongSelf.searchBar resignFirstResponder];
-                [strongSelf.navigationController pushViewController:
-                  [[SSCPlacePreview alloc] initWithItem:item] animated:YES];
+                SSCShowNearbyWalksFromItem(strongSelf,item);
             } else {
                 NSString *reason=[NSString stringWithFormat:@"MapKit could not load the location (%@ %ld).",
                     error.domain ?: @"unknown",(long)error.code];
