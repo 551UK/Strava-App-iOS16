@@ -29,18 +29,20 @@ jobs:
           set -- SearchFix/packages/*.deb
           test "$#" -eq 1
           test "$(dpkg-deb -f "$1" Package)" = "com.551uk.stravasearch16"
-          test "$(dpkg-deb -f "$1" Version)" = "0.2.0"
+          test "$(dpkg-deb -f "$1" Version)" = "0.3.0"
           test "$(dpkg-deb -f "$1" Architecture)" = "iphoneos-arm64"
           dpkg-deb -x "$1" "$RUNNER_TEMP/searchfix"
           root="$RUNNER_TEMP/searchfix/var/jb/Library/MobileSubstrate/DynamicLibraries"
           test -s "$root/StravaSearch16.dylib"
           strings "$root/StravaSearch16.dylib" | grep -F "UI_TRY_AGAIN" >/dev/null
           strings "$root/StravaSearch16.dylib" | grep -F "HTTP_FINISH" >/dev/null
+          strings "$root/StravaSearch16.dylib" | grep -F "GRAPHQL_ERRORS" >/dev/null
+          strings "$root/StravaSearch16.dylib" | grep -F "SHARE_SNAPSHOT_BEGIN" >/dev/null
           test -s "$root/StravaSearch16.plist"
           plutil -lint "$root/StravaSearch16.plist"
           xcrun lipo "$root/StravaSearch16.dylib" -verify_arch arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: StravaSearch16-0.2.0-diagnostics-rootless
+          name: StravaSearch16-0.3.0-diagnostics-rootless
           path: SearchFix/packages/*.deb
           if-no-files-found: error

@@ -5,7 +5,8 @@
 #import <substrate.h>
 
 // Private local diagnostics; never save headers, cookies, tokens,
-// request/response bodies, coordinates or search query strings.
+// raw URL paths/queries, request/response bodies, coordinates or search text.
+// GraphQL JSON is inspected only for operation names and safe error codes.
 static dispatch_queue_t SLogQueue;
 static NSString *SLogPath;
 static NSMutableDictionary *STasks; // Only within the Strava process, main queue.
@@ -44,11 +45,15 @@ static void SLog(NSString *entry) {
 
 static NSString *SRequestCategory(NSURL *url) {
     if (!url) return @"unknown";
+    NSString *host=[url.host lowercaseString] ?: @"";
+    if ([host isEqualToString:@"graphql.strava.com"]) return @"graphql";
     NSString *path=[url.path lowercaseString] ?: @"";
     if ([path containsString:@"graphql"]) return @"graphql";
     if ([path containsString:@"geocod"] || [path containsString:@"autocomplete"] ||
         [path containsString:@"searchbox"] || [path containsString:@"suggest"] ||
         [path containsString:@"search"]) return @"search";
+    if ([path containsString:@"checkout"] || [path containsString:@"subscription"] ||
+        [path containsString:@"purchase"]) return @"checkout";
     if ([path containsString:@"route"]) return @"route";
     if ([path containsString:@"map"] || [path containsString:@"tile"]) return @"maps";
     if ([path containsString:@"clientconfig"] || [path containsString:@"feature"]) return @"configuration";
@@ -63,17 +68,67 @@ static NSString *SRequestLabel(NSURL *url) {
     if (host.length>100) host=[host substringToIndex:100];
     return [NSString stringWithFormat:@"host=%@ category=%@",host,SRequestCategory(url)];
 }
+static NSString *SGraphQLOperation(NSURLRequest *request) {
+    if (![SRequestCategory(request.URL) isEqualToString:@"graphql"]) return @"none";
+    NSData *body=request.HTTPBody;
+    if (!body || body.length>262144) return @"unknown";
+    id obj=[NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+    if (![obj isKindOfClass:[NSDictionary class]]) return @"unknown";
+    id value=[(NSDictionary *)obj objectForKey:@"operationName"];
+    if (![value isKindOfClass:[NSString class]]) return @"unknown";
+    NSString *name=(NSString *)value;
+    if (!name.length || name.length>90) return @"unknown";
+    NSCharacterSet *allowed=[NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"];
+    if ([name rangeOfCharacterFromSet:[allowed invertedSet]].location!=NSNotFound)
+        return @"unknown";
+    return name;
+}
+static void SInspectGraphQLResponse(NSURL *url,NSData *data) {
+    if (![SRequestCategory(url) isEqualToString:@"graphql"] ||
+        !data || data.length>1048576) return;
+    id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![obj isKindOfClass:[NSDictionary class]]) return;
+    id list=[(NSDictionary *)obj objectForKey:@"errors"];
+    if (![list isKindOfClass:[NSArray class]] || ![(NSArray *)list count]) return;
+    NSMutableOrderedSet *codes=[NSMutableOrderedSet orderedSet];
+    NSCharacterSet *allowed=[NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"];
+    for (id item in (NSArray *)list) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        id ext=[(NSDictionary *)item objectForKey:@"extensions"];
+        id code=[ext isKindOfClass:[NSDictionary class]] ?
+            [(NSDictionary *)ext objectForKey:@"code"] : nil;
+        if (![code isKindOfClass:[NSString class]]) continue;
+        NSString *str=(NSString *)code;
+        if (str.length>0 && str.length<=50 &&
+            [str rangeOfCharacterFromSet:[allowed invertedSet]].location==NSNotFound)
+            [codes addObject:str];
+    }
+    SLog([NSString stringWithFormat:@"GRAPHQL_ERRORS count=%lu codes=%@",
+          (unsigned long)[(NSArray *)list count],
+          codes.count ? [codes.array componentsJoinedByString:@","] : @"not-provided"]);
+}
 static void SFinish(NSURL *url, NSURLResponse *response, NSError *error) {
     NSInteger status=[response isKindOfClass:[NSHTTPURLResponse class]] ?
        ((NSHTTPURLResponse *)response).statusCode : 0;
+    NSString *mime=response.MIMEType ?: @"unknown";
+    if (mime.length>48) mime=@"unknown";
+    NSCharacterSet *mimeAllowed=[NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.+/-"];
+    if ([mime rangeOfCharacterFromSet:[mimeAllowed invertedSet]].location!=NSNotFound)
+        mime=@"unknown";
     if (error || status>=300 || status==0) {
-        SLog([NSString stringWithFormat:@"HTTP_FINISH %@ status=%ld errorDomain=%@ errorCode=%ld",
-            SRequestLabel(url),(long)status,error.domain ?: @"none",(long)error.code]);
-    } else if ([SRequestCategory(url) isEqualToString:@"route"] ||
-               [SRequestCategory(url) isEqualToString:@"search"] ||
-               [SRequestCategory(url) isEqualToString:@"graphql"]) {
-        SLog([NSString stringWithFormat:@"HTTP_OK %@ status=%ld",
-            SRequestLabel(url),(long)status]);
+        SLog([NSString stringWithFormat:
+            @"HTTP_FINISH %@ status=%ld mime=%@ errorDomain=%@ errorCode=%ld",
+            SRequestLabel(url),(long)status,mime,
+            error.domain ?: @"none",(long)error.code]);
+    } else {
+        NSString *host=[url.host lowercaseString] ?: @"";
+        if ([host containsString:@"strava.com"] ||
+            [SRequestCategory(url) isEqualToString:@"graphql"])
+            SLog([NSString stringWithFormat:@"HTTP_OK %@ status=%ld mime=%@",
+                SRequestLabel(url),(long)status,mime]);
     }
 }
 static UIWindow *SWindow(void) {
@@ -129,6 +184,23 @@ static SSDiagnostics *SDiagnostics;
     UIWindow *window=SWindow();
     UIViewController *top=STop(window.rootViewController);
     if (!top) return;
+    SLog(@"SHARE_SNAPSHOT_BEGIN");
+    CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
+    unsigned int count=0;
+    for (NSString *key in [STasks allKeys]) {
+        NSDictionary *record=STasks[key];
+        NSURLSessionTask *task=record[@"task"];
+        if (!task) continue;
+        if (++count>60) break;
+        NSURLRequest *request=task.currentRequest ?: task.originalRequest;
+        NSInteger status=[task.response isKindOfClass:[NSHTTPURLResponse class]] ?
+            [(NSHTTPURLResponse *)task.response statusCode] : 0;
+        SLog([NSString stringWithFormat:@"TASK_SNAPSHOT %@ method=%@ op=%@ state=%ld age=%.1f status=%ld",
+             SRequestLabel(request.URL),request.HTTPMethod ?: @"GET",
+             SGraphQLOperation(request),(long)task.state,
+             now-[record[@"created"] doubleValue],(long)status]);
+    }
+    SLog(@"SHARE_SNAPSHOT_END");
     dispatch_sync(SLogQueue, ^{});
     NSString *path=SLogPath;
     BOOL hasFile=[[NSFileManager defaultManager] fileExistsAtPath:path];
@@ -209,6 +281,7 @@ static SSDiagnostics *SDiagnostics;
     void (^wrapped)(NSData *,NSURLResponse *,NSError *) =
     ^(NSData *data,NSURLResponse *response,NSError *error) {
         SFinish(url,response,error);
+        SInspectGraphQLResponse(url,data);
         if (completion) completion(data,response,error);
     };
     return %orig(request,wrapped);
@@ -237,8 +310,9 @@ static SSDiagnostics *SDiagnostics;
 - (void)resume {
     NSURL *url=self.originalRequest.URL ?: self.currentRequest.URL;
     if (url) {
-        SLog([NSString stringWithFormat:@"HTTP_START %@ method=%@",
-            SRequestLabel(url),self.originalRequest.HTTPMethod ?: @"GET"]);
+        NSURLRequest *request=self.originalRequest ?: self.currentRequest;
+        SLog([NSString stringWithFormat:@"HTTP_START %@ method=%@ op=%@",
+            SRequestLabel(url),request.HTTPMethod ?: @"GET",SGraphQLOperation(request)]);
         NSURLSessionTask *task=self;
         dispatch_async(dispatch_get_main_queue(), ^{
             if (STasks.count>=140) return;
@@ -279,7 +353,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.2.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 0.3.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
