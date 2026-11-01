@@ -12,25 +12,6 @@ StravaCompat is a rootless jailbreak tweak that helps **Strava 422.0.1** on **iO
 - Genuine Strava app icon in the iOS Settings tweak list.
 - Injection limited to Strava (`com.strava.stravaride`).
 
-The spoofed version does not install newer Strava functionality or guarantee server-side acceptance. Passwords, authentication tokens, subscriptions and server responses are not modified.
-
-## Compatibility
-
-- **Strava:** 422.0.1
-- **iOS:** iOS 16 with rootless Dopamine / ElleKit
-- **Dependencies:** PreferenceLoader, libSandy and MobileSubstrate-compatible injection
-
 ## Settings
 
 Open **iOS Settings → StravaCompat**, enter a version, then fully close and reopen Strava to apply it. Keep iOS spoofing off unless needed. **Restore Defaults** returns to the default version and switches.
-
-## Build
-
-With Theos and a compatible iOS SDK on macOS:
-
-```sh
-python3 scripts/prepare-icon.py
-make clean package FINALPACKAGE=1
-```
-
-This repository does not include a Strava IPA.
