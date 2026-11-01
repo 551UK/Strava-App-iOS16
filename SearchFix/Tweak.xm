@@ -11,7 +11,6 @@
 static BOOL sArmed = NO;
 static BOOL sFallbackVisible = NO;
 static CFAbsoluteTime sArmedAt = 0;
-static NSInteger sLastErrorAttempt = 0;
 @class SSCPlacePreview;
 
 @interface SSCSearchController : UITableViewController <UISearchBarDelegate, MKLocalSearchCompleterDelegate>
