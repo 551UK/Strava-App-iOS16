@@ -172,6 +172,9 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
     [super viewDidLoad];
     self.view.backgroundColor=UIColor.systemBackgroundColor;
     self.title=@"Route map";
+    [[NSNotificationCenter defaultCenter] addObserver:self
+      selector:@selector(stopInBackground:)
+      name:UIApplicationDidEnterBackgroundNotification object:nil];
     self.navigationItem.leftBarButtonItem=[[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemDone
       target:self action:@selector(close)];
@@ -273,7 +276,7 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
         self.gps.distanceFilter=5;
         self.gps.activityType=CLActivityTypeFitness;
     }
-    CLAuthorizationStatus auth=[CLLocationManager authorizationStatus];
+    CLAuthorizationStatus auth=self.gps.authorizationStatus;
     if (auth==kCLAuthorizationStatusDenied || auth==kCLAuthorizationStatusRestricted) {
         self.status.text=@"Allow location access to Strava in iOS Settings.";
         return;
@@ -291,7 +294,7 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
 }
 - (void)startPositionUpdates {
     if (!self.following || !self.gps) return;
-    CLAuthorizationStatus auth=[CLLocationManager authorizationStatus];
+    CLAuthorizationStatus auth=self.gps.authorizationStatus;
     if (auth!=kCLAuthorizationStatusAuthorizedWhenInUse &&
         auth!=kCLAuthorizationStatusAuthorizedAlways) return;
     [self.gps startUpdatingLocation];
@@ -316,13 +319,20 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
                            self.isMovingFromParentViewController))
         [self stopFollowing];
 }
+- (void)stopInBackground:(NSNotification *)notification {
+    if (self.following) {
+        [self stopFollowing];
+        self.status.text=@"Guidance stopped when Strava moved to background.";
+    }
+}
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.gps stopUpdatingLocation];
     self.gps.delegate=nil;
 }
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
     if (!self.following) return;
-    CLAuthorizationStatus auth=[CLLocationManager authorizationStatus];
+    CLAuthorizationStatus auth=self.gps.authorizationStatus;
     if (auth==kCLAuthorizationStatusAuthorizedAlways ||
         auth==kCLAuthorizationStatusAuthorizedWhenInUse)
         [self startPositionUpdates];
