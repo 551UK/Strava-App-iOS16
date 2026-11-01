@@ -330,8 +330,8 @@ static SSDiagnostics *SDiagnostics;
     if (SSCSharedRoutesCount()) {
         SSCSharedRoutesShow(top);
     } else {
-        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"No route geometry available"
-          message:@"The list response does not contain a decodable route line or supported public link. Please share the log so its geometry structure can be checked."
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Native route unavailable"
+          message:@"Strava has not returned route records yet. Reopen Maps and allow the SuggestedRoutes request to complete, then share the log."
           preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK"
             style:UIAlertActionStyleDefault handler:nil]];
@@ -438,7 +438,7 @@ static SSDiagnostics *SDiagnostics;
         SLog(@"HUD_READY publicRoutes=1");
     }
     NSUInteger available=SSCSharedRoutesCount();
-    [SRouteButton setTitle:[NSString stringWithFormat:@"Route previews (%lu)",(unsigned long)available]
+    [SRouteButton setTitle:[NSString stringWithFormat:@"Strava routes (%lu)",(unsigned long)available]
         forState:UIControlStateNormal];
     SRouteButton.frame=CGRectMake(10,topY,160,37);
     SShareButton.hidden=SShowingShare;
@@ -602,7 +602,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.9.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 1.0.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];

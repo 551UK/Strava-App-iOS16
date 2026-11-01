@@ -1,7 +1,13 @@
-v0.9.0 — trace the Strava route-to-checkout call site.
+v1.0.0 — test Strava's own route-detail destination rather than replacing its checkout.
 
-- Instruments UIKit `presentViewController:` only when a `CheckoutLoadingView` is being presented.
-- Logs the presenting/visible controller and a bounded backtrace of Mach-O-relative offsets and static symbols, for comparison against decrypted 422 and 487 binaries.
-- Preserves the 0.8.0 read-only `Route previews (N)` experiment and the Share Log overlay.
-- **Does not suppress checkout**, modify subscription/trial entitlements, forge responses or alter StravaCompat.
-- Keep **Version Headers OFF**. Reproduce once by tapping a route and use Share Log to send the diagnostics. Not yet device-confirmed.
+Static analysis of all three supplied IPAs (375/422/487) identified:
+`strava://route/suggested/:id/view_details`, `strava://route/:id/view_details`, `strava://routes/:id`.
+The 422 and 487 binaries also have separate `openRouteDetailPage` and `showUpsell` callbacks.
+
+- The overlay lists **Strava routes (N)** based on actual SuggestedRoutes records instead of hiding all records that lack a public https link.
+- Opens genuine Strava deep links returned by the API with Strava's own URL router. No route IDs are invented.
+- Accepts two observed polyline response shapes for the optional read-only map preview.
+- Logs only privacy-safe field-shape counters via `NATIVE_ROUTE_SCAN`.
+- Retains checkout call-stack tracing and Share Log.
+- Does not spoof subscription state, modify responses or automatically hide checkout; free-account server restrictions still apply.
+- **Version Headers OFF** remains necessary in StravaCompat. This is an unverified on-device experiment.
