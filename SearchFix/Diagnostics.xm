@@ -14,6 +14,7 @@ extern "C" void SSCSharedRoutesCaptureJSON(id obj, void (*logger)(NSString *));
 extern "C" NSUInteger SSCSharedRoutesCount(void);
 extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
+static UIButton *SShareButton;
 static UIButton *SRouteButton;
 static UIButton *SCloseOffer;
 static UIWindow *SHUDWindow;
@@ -55,7 +56,6 @@ static void SPrepareHUD(UIWindow *base) {
 }
 static NSString *SLogPath;
 static NSMutableDictionary *STasks; // Only within the Strava process, main queue.
-static UIButton *SShareButton;
 static BOOL SErrorVisible=NO;
 static CFAbsoluteTime SLastError=0;
 static CFAbsoluteTime SLastScreen=0;
