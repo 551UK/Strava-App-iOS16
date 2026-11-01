@@ -22,6 +22,7 @@ extern "C" BOOL SSCNativeRouteOpening(void);
 extern "C" void SSCSharedRoutesCaptureJSON(id obj, void (*logger)(NSString *));
 extern "C" NSUInteger SSCSharedRoutesCount(void);
 extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
+extern "C" void SSCShowNearbyWalks(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
 static UIButton *SShareButton;
 static UIButton *SRouteButton;
@@ -365,21 +366,11 @@ static SSDiagnostics *SDiagnostics;
     SLog([NSString stringWithFormat:@"CHECKOUT_UI_SWITCH hide=%d",sHideRouteOffers]);
 }
 - (void)openSharedRoutes:(id)sender {
-    UIWindow *window=SWindow();
-    SLog([NSString stringWithFormat:@"USER_ROUTE_PREVIEW_VIEWER count=%lu",
-      (unsigned long)SSCSharedRoutesCount()]);
-    UIViewController *top=STop(SHUDWindow.rootViewController ?: window.rootViewController);
+    UIWindow *win=SWindow();
+    UIViewController *top=STop(win.rootViewController);
     if (!top) return;
-    if (SSCSharedRoutesCount()) {
-        SSCSharedRoutesShow(top);
-    } else {
-        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Native route unavailable"
-          message:@"Strava has not returned route records yet. Reopen Maps and allow the SuggestedRoutes request to complete, then share the log."
-          preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-            style:UIAlertActionStyleDefault handler:nil]];
-        [top presentViewController:alert animated:YES completion:nil];
-    }
+    SLog(@"USER_NEARBY_WALKS_VIEWER");
+    SSCShowNearbyWalks(top);
 }
 - (void)share:(id)sender {
     UIWindow *window=SWindow();
@@ -492,7 +483,7 @@ static SSDiagnostics *SDiagnostics;
         SLog(@"HUD_READY publicRoutes=1");
     }
     NSUInteger available=SSCSharedRoutesCount();
-    [SRouteButton setTitle:[NSString stringWithFormat:@"Strava routes (%lu)",(unsigned long)available]
+    [SRouteButton setTitle:@"Nearby walks"
         forState:UIControlStateNormal];
     SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
     if (!SOfferButton) {
@@ -715,7 +706,7 @@ static void STraceFlow(NSString *event,UIViewController *source,UIViewController
                     UIViewController *source=weakSource;
                     if (!source || source.presentedViewController) return;
                     if (searchAction) SSCShowSearchScreen(source);
-                    else SSCSharedRoutesShow(source);
+                    else SSCShowNearbyWalks(source);
                 });
             }
             return;
@@ -756,7 +747,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== Strava Native Bridge 1.3.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== Strava Native Bridge 1.4.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
