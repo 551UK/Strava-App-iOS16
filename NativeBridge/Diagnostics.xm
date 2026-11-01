@@ -7,7 +7,14 @@
 #include <stdint.h>
 
 // Optional, version-only request identity adapter for route/search requests.
-extern "C" NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *));
+// This independent add-on does not rewrite headers (StravaCompat 0.3.0 remains untouched).
+static NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *)) {
+    return request;
+}
+extern "C" void SSCInspectSearchTouch(UIEvent *event);
+extern "C" BOOL SSCWasRecentSearchTap(void);
+extern "C" void SSCShowSearchScreen(UIViewController *source);
+extern "C" BOOL SSCNativeRouteOpening(void);
 
 // Private local diagnostics; never save headers, cookies, tokens,
 // raw URL paths/queries, request/response bodies, coordinates or search text.
@@ -351,7 +358,7 @@ static SSDiagnostics *SDiagnostics;
 }
 - (void)toggleOffers:(id)sender {
     sHideRouteOffers=!sHideRouteOffers;
-    [SOfferButton setTitle:sHideRouteOffers ? @"Trial popup: Hidden" : @"Trial popup: Shown"
+    [SOfferButton setTitle:sHideRouteOffers ? @"Navigation test: On" : @"Navigation test: Off"
       forState:UIControlStateNormal];
     SOfferButton.tintColor=sHideRouteOffers ?
        [UIColor colorWithRed:0.7 green:0.2 blue:0 alpha:1] : UIColor.systemBlueColor;
@@ -500,7 +507,7 @@ static SSDiagnostics *SDiagnostics;
         offerPan.cancelsTouchesInView=NO;
         [SOfferButton addGestureRecognizer:offerPan];
         [surface addSubview:SOfferButton];
-        [SOfferButton setTitle:sHideRouteOffers ? @"Trial popup: Hidden" : @"Trial popup: Shown"
+        [SOfferButton setTitle:sHideRouteOffers ? @"Navigation test: On" : @"Navigation test: Off"
           forState:UIControlStateNormal];
         SOfferButton.tintColor=sHideRouteOffers ?
           [UIColor colorWithRed:0.7 green:0.2 blue:0 alpha:1] : UIColor.systemBlueColor;
@@ -676,6 +683,13 @@ static void STraceFlow(NSString *event,UIViewController *source,UIViewController
         i++;
     }
 }
+%hook UIApplication
+- (void)sendEvent:(UIEvent *)event {
+    SSCInspectSearchTouch(event);
+    %orig;
+}
+%end
+
 %hook UIViewController
 - (void)presentViewController:(UIViewController *)controllerToPresent
                      animated:(BOOL)animated completion:(void (^)(void))completion {
@@ -684,11 +698,26 @@ static void STraceFlow(NSString *event,UIViewController *source,UIViewController
         [destination containsString:@"Checkout19Checkout"];
     if (checkout) {
         SLogCheckoutPresentation(self,controllerToPresent,animated);
-        if (sHideRouteOffers) {
-            SLog(@"CHECKOUT_UI_SUPPRESSED reason=diagnostic_hide_offer (no route continuation invoked)");
-            // The modal is skipped, but neither user entitlement nor Strava's
-            // route-selection callback is altered. This is NOT paid access.
+        if (sHideRouteOffers &&
+            (SSCWasRecentSearchTap() || SSCSharedRoutesCount()>0)) {
+            BOOL searchAction=SSCWasRecentSearchTap();
+            BOOL alreadyRouting=SSCNativeRouteOpening();
+            SLog([NSString stringWithFormat:
+              @"NATIVE_BRIDGE_ACTION type=%@ routes=%lu retry=%d (no entitlement change)",
+              searchAction?@"search":@"route",
+              (unsigned long)SSCSharedRoutesCount(),alreadyRouting]);
+            // Skip only the offer's presentation. It does not change the
+            // subscription or supply an invalid API result.
             if (completion) completion();
+            if (!alreadyRouting) {
+                __weak UIViewController *weakSource=self;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIViewController *source=weakSource;
+                    if (!source || source.presentedViewController) return;
+                    if (searchAction) SSCShowSearchScreen(source);
+                    else SSCSharedRoutesShow(source);
+                });
+            }
             return;
         }
     } else if (SRelevantFlowName(destination)) {
@@ -727,7 +756,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 1.2.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== Strava Native Bridge 1.3.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
