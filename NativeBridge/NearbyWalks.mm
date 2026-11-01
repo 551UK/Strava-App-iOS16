@@ -135,7 +135,7 @@ extern "C" void SSCShowSearchScreen(UIViewController *presenter);
         self.locationManager=[CLLocationManager new];
         self.locationManager.delegate=self;
         self.locationManager.desiredAccuracy=kCLLocationAccuracyHundredMeters;
-        if ([CLLocationManager authorizationStatus]==kCLAuthorizationStatusNotDetermined)
+        if (self.locationManager.authorizationStatus==kCLAuthorizationStatusNotDetermined)
             [self.locationManager requestWhenInUseAuthorization];
         else
             [self requestUserLocation];
@@ -179,7 +179,7 @@ extern "C" void SSCShowSearchScreen(UIViewController *presenter);
     }
 }
 - (void)requestUserLocation {
-    CLAuthorizationStatus state=[CLLocationManager authorizationStatus];
+    CLAuthorizationStatus state=self.locationManager.authorizationStatus;
     if (state==kCLAuthorizationStatusAuthorizedAlways ||
         state==kCLAuthorizationStatusAuthorizedWhenInUse) {
         [self.locationManager requestLocation];
