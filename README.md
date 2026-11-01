@@ -1,36 +1,36 @@
 # StravaCompat for iOS 16
 
-StravaCompat is a rootless jailbreak tweak designed to help **Strava 422.0.1** run on **iOS 16** by addressing local app-version checks.
+StravaCompat is a rootless jailbreak tweak that helps **Strava 422.0.1** on **iOS 16** by addressing its local app-version checks.
 
 ## Features
 
-- Reports **Strava 486.0.2** when the app requests its main bundle's short version string.
-- Handles the local `isAppVersionValid` check, when its method and Boolean signature match the expected form.
-- Replaces older Strava versions in selected outgoing HTTP headers.
-- Supports optional iOS-version spoofing, **disabled by default** for startup compatibility.
-- Limits tweak injection to Strava (`com.strava.stravaride`).
+- Editable **Strava Version** field in iOS Settings (default **486.0.2**).
+- Spoofs the app's main-bundle short version and updates selected version-related HTTP headers.
+- Handles the local `isAppVersionValid` check when the class, selector and signature match.
+- Optional **iOS Version** field (default **17.7.2**) and separate enable switch, off by default for stability.
+- Enable/disable switch and **Restore Defaults** button.
+- Genuine Strava app icon in the iOS Settings tweak list.
+- Injection limited to Strava (`com.strava.stravaride`).
 
-These changes do not alter passwords, authentication tokens, paid subscriptions, or server responses. Strava's server-side requirements may still apply.
+The spoofed version does not install newer Strava functionality or guarantee server-side acceptance. Passwords, authentication tokens, subscriptions and server responses are not modified.
 
 ## Compatibility
 
-**Strava app:** 422.0.1
-**iOS:** 16.0 or newer, with a compatible rootless jailbreak
-**Environment:** Dopamine / ElleKit
-**Package ID:** `com.551uk.stravacompat`
+- **Strava:** 422.0.1
+- **iOS:** iOS 16 with rootless Dopamine / ElleKit
+- **Dependencies:** PreferenceLoader, libSandy and MobileSubstrate-compatible injection
 
-## Configuration
+## Settings
 
-Optional settings file: `/var/jb/Library/Preferences/com.551uk.stravacompat.plist`
-
-Settings: `Enabled`, `AppVersion`, `EnableLocalVersionCheck`, `SpoofHeaderVersions`, `SpoofIOSVersion`, `IOSVersion`. Fully close and restart Strava after changing any setting.
+Open **iOS Settings → StravaCompat**, enter a version, then fully close and reopen Strava to apply it. Keep iOS spoofing off unless needed. **Restore Defaults** returns to the default version and switches.
 
 ## Build
 
-Build from source using Theos and an iOS SDK:
+With Theos and a compatible iOS SDK on macOS:
 
 ```sh
+python3 scripts/prepare-icon.py
 make clean package FINALPACKAGE=1
 ```
 
-No Strava IPA is included in this repository.
+This repository does not include a Strava IPA.

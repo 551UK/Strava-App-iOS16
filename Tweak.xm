@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <CoreFoundation/CoreFoundation.h>
+#import <dlfcn.h>
 #import <objc/runtime.h>
 #import <substrate.h>
 #import <string.h>
@@ -15,6 +17,69 @@ static BOOL sEnabled = YES;
 static BOOL sLocalCheck = YES;
 static BOOL sHeaderSpoof = YES;
 static BOOL sIOSSpoof = NO;
+
+
+// Preferences are written by PreferenceLoader in the mobile user domain.
+// A sandbox extension allows this App Store process to read the values.
+static NSString *const sPreferenceDomain = @"com.551uk.stravacompat";
+static void *sSandyHandle = NULL;
+typedef int (*SandyApplyFn)(const char *);
+static void EnablePreferenceReadAccess(void) {
+    const char *candidates[] = {
+        "/var/jb/usr/lib/libsandy.dylib",
+        "/usr/lib/libsandy.dylib",
+        "libsandy.dylib", NULL
+    };
+    for (int i = 0; candidates[i] && !sSandyHandle; i++)
+        sSandyHandle = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
+    if (!sSandyHandle) {
+        NSLog(@"[StravaCompat] libSandy unavailable; trying CFPreferences fallback");
+        return;
+    }
+    SandyApplyFn applyProfile = (SandyApplyFn)dlsym(sSandyHandle,"libSandy_applyProfile");
+    if (applyProfile && applyProfile("StravaCompat_Preferences") == 0)
+        NSLog(@"[StravaCompat] Settings sandbox access enabled");
+    else
+        NSLog(@"[StravaCompat] Could not apply settings sandbox profile");
+}
+static NSDictionary *GetPreferences(void) {
+    EnablePreferenceReadAccess();
+    NSArray *paths = @[
+        @"/var/jb/var/mobile/Library/Preferences/com.551uk.stravacompat.plist",
+        @"/var/mobile/Library/Preferences/com.551uk.stravacompat.plist",
+        @"/var/jb/Library/Preferences/com.551uk.stravacompat.plist"
+    ];
+    for (NSString *path in paths) {
+        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:path];
+        if ([prefs isKindOfClass:[NSDictionary class]]) return prefs;
+    }
+    CFPreferencesAppSynchronize((__bridge CFStringRef)sPreferenceDomain);
+    CFArrayRef keys = CFPreferencesCopyKeyList(
+        (__bridge CFStringRef)sPreferenceDomain,
+        kCFPreferencesCurrentUser,kCFPreferencesAnyHost);
+    if (!keys) return nil;
+    CFDictionaryRef dict = CFPreferencesCopyMultiple(
+        keys, (__bridge CFStringRef)sPreferenceDomain,
+        kCFPreferencesCurrentUser,kCFPreferencesAnyHost);
+    CFRelease(keys);
+    return dict ? CFBridgingRelease(dict) : nil;
+}
+static NSString *ValidateVersion(id candidate) {
+    if (![candidate isKindOfClass:[NSString class]]) return nil;
+    NSString *value = [(NSString *)candidate
+        stringByTrimmingCharactersInSet:
+          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (value.length < 3 || value.length > 32) return nil;
+    NSArray *parts = [value componentsSeparatedByString:@"."];
+    if (parts.count < 2 || parts.count > 6) return nil;
+    NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+    for (NSString *part in parts) {
+        if (part.length == 0 || part.length > 10 ||
+            [part rangeOfCharacterFromSet:[digits invertedSet]].location != NSNotFound)
+            return nil;
+    }
+    return value;
+}
 
 static NSString *RewrittenHeader(NSString *value, NSString *field) {
     if (!sEnabled || !sHeaderSpoof ||
@@ -127,8 +192,7 @@ static void InstallLocalCheckHook(void) {
         if (![[sMainBundle bundleIdentifier] isEqualToString:@"com.strava.stravaride"])
             return;
 
-        NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:
-            @"/var/jb/Library/Preferences/com.551uk.stravacompat.plist"];
+        NSDictionary *p = GetPreferences();
         if ([p[@"Enabled"] respondsToSelector:@selector(boolValue)])
             sEnabled = [p[@"Enabled"] boolValue];
         if ([p[@"EnableLocalVersionCheck"] respondsToSelector:@selector(boolValue)])
@@ -137,10 +201,10 @@ static void InstallLocalCheckHook(void) {
             sHeaderSpoof = [p[@"SpoofHeaderVersions"] boolValue];
         if ([p[@"SpoofIOSVersion"] respondsToSelector:@selector(boolValue)])
             sIOSSpoof = [p[@"SpoofIOSVersion"] boolValue];
-        if ([p[@"AppVersion"] isKindOfClass:[NSString class]] && [p[@"AppVersion"] length])
-            sVersion = [p[@"AppVersion"] copy];
-        if ([p[@"IOSVersion"] isKindOfClass:[NSString class]] && [p[@"IOSVersion"] length])
-            sIOSVersion = [p[@"IOSVersion"] copy];
+        NSString *appVersion = ValidateVersion(p[@"AppVersion"]);
+        if (appVersion) sVersion = [appVersion copy];
+        NSString *osVersion = ValidateVersion(p[@"IOSVersion"]);
+        if (osVersion) sIOSVersion = [osVersion copy];
         if (!sEnabled) {
             NSLog(@"[StravaCompat] Disabled by preferences");
             return;
@@ -150,7 +214,7 @@ static void InstallLocalCheckHook(void) {
         if (sHeaderSpoof) %init(HttpHeaders);
         if (sIOSSpoof) %init(OptionalIOS);
         InstallLocalCheckHook();
-        NSLog(@"[StravaCompat] v0.1.1 ready; version=%@ local=%d headers=%d iOS=%d",
+        NSLog(@"[StravaCompat] ready; version=%@ local=%d headers=%d iOS=%d",
               sVersion, sLocalCheck, sHeaderSpoof, sIOSSpoof);
     }
 }

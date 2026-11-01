@@ -1,0 +1,101 @@
+name: Build StravaCompat rootless and release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stravacompat-v2-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Theos
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+
+      - name: Prepare genuine Strava Settings icons
+        run: python3 scripts/prepare-icon.py
+
+      - name: Build rootless DEB
+        run: make clean package FINALPACKAGE=1
+
+      - name: Validate DEB and Settings icon registration
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install dpkg
+          set -- packages/*.deb
+          test "$#" -eq 1
+          deb="$1"
+          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
+          test "$(dpkg-deb -f "$deb" Package)" = "com.551uk.stravacompat"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.2.0"
+          dpkg-deb -x "$deb" "$RUNNER_TEMP/strava-package"
+          root="$RUNNER_TEMP/strava-package/var/jb"
+          tweak="$root/Library/MobileSubstrate/DynamicLibraries/StravaCompat.dylib"
+          entry="$root/Library/PreferenceLoader/Preferences/StravaCompatPrefs.plist"
+          bundle="$root/Library/PreferenceBundles/StravaCompatPrefs.bundle"
+          sandbox="$root/Library/libSandy/StravaCompat_Preferences.plist"
+          test -s "$tweak"
+          test -s "$root/Library/MobileSubstrate/DynamicLibraries/StravaCompat.plist"
+          test -s "$entry"
+          test -s "$sandbox"
+          test -s "$bundle/StravaCompatPrefs"
+          test -s "$bundle/Root.plist"
+          test -s "$bundle/Info.plist"
+          test "$(plutil -extract entry.icon raw -o - "$entry")" = "icon.png"
+          test "$(plutil -extract entry.bundle raw -o - "$entry")" = "StravaCompatPrefs"
+          test "$(plutil -extract NSPrincipalClass raw -o - "$bundle/Info.plist")" = "StravaCompatRootListController"
+          for name in icon.png icon@2x.png icon@3x.png; do
+            case "$name" in
+              icon.png) expected=29 ;;
+              icon@2x.png) expected=58 ;;
+              icon@3x.png) expected=87 ;;
+            esac
+            test -s "$bundle/$name"
+            test "$(sips -g pixelWidth "$bundle/$name" | awk '/pixelWidth/ {print $2}')" = "$expected"
+            test "$(sips -g pixelHeight "$bundle/$name" | awk '/pixelHeight/ {print $2}')" = "$expected"
+          done
+          for p in "$entry" "$bundle/Root.plist" "$bundle/Info.plist" "$sandbox"; do
+            plutil -lint "$p"
+          done
+          xcrun lipo "$tweak" -verify_arch arm64
+          xcrun lipo "$bundle/StravaCompatPrefs" -verify_arch arm64
+          dpkg-deb --info "$deb"
+          echo "Verified actual Strava icon and Settings entry in the rootless package"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StravaCompat-0.2.0-rootless
+          path: packages/*.deb
+          if-no-files-found: error
+
+      - name: Publish latest DEB
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^Version: //p' control)"
+          tag="v$version"
+          notes="StravaCompat for Strava 422.0.1 on rootless iOS 16. Editable Strava and iOS version fields in Settings, local version checks, selected HTTP version headers, and official Strava Settings icon. iOS spoof is off by default; fully close and reopen Strava after changes."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" packages/*.deb --clobber
+            gh release edit "$tag" --title "StravaCompat $version" --notes "$notes"
+          else
+            gh release create "$tag" packages/*.deb --target "$GITHUB_SHA" --title "StravaCompat $version" --notes "$notes"
+          fi
+          while read -r asset; do
+            test -z "$asset" && continue
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset"
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name != "v0.2.0") | .assets[] | select(.name | endswith(".deb")) | .id')
