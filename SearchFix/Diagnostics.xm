@@ -16,7 +16,6 @@ extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
 static UIButton *SShareButton;
 static UIButton *SRouteButton;
-static UIButton *SCloseOffer;
 static UIWindow *SHUDWindow;
 static BOOL SShowingShare=NO;
 
@@ -37,7 +36,6 @@ static void SPrepareHUD(UIWindow *base) {
         SHUDWindow=nil;
         SShareButton=nil;
         SRouteButton=nil;
-        SCloseOffer=nil;
     }
     if (!SHUDWindow) {
         STransparentWindow *w=[[STransparentWindow alloc] initWithWindowScene:base.windowScene];
@@ -318,29 +316,20 @@ static NSString *STaskKey(NSURLSessionTask *task) {
 - (void)tick:(NSTimer *)timer;
 - (void)share:(id)sender;
 - (void)openSharedRoutes:(id)sender;
-- (void)closeOffer:(id)sender;
 @end
 static SSDiagnostics *SDiagnostics;
 @implementation SSDiagnostics
-- (void)closeOffer:(id)sender {
-    UIWindow *window=SWindow();
-    UIViewController *top=STop(window.rootViewController);
-    NSString *className=NSStringFromClass(top.class) ?: @"";
-    if (!([className containsString:@"Checkout"] || [className containsString:@"Upsell"])) return;
-    SLog(@"USER_DISMISS_CHECKOUT");
-    [top dismissViewControllerAnimated:YES completion:nil];
-}
 - (void)openSharedRoutes:(id)sender {
     UIWindow *window=SWindow();
-    SLog([NSString stringWithFormat:@"USER_PUBLIC_ROUTE_VIEWER count=%lu",
+    SLog([NSString stringWithFormat:@"USER_ROUTE_PREVIEW_VIEWER count=%lu",
       (unsigned long)SSCSharedRoutesCount()]);
     UIViewController *top=STop(SHUDWindow.rootViewController ?: window.rootViewController);
     if (!top) return;
     if (SSCSharedRoutesCount()) {
         SSCSharedRoutesShow(top);
     } else {
-        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"No public route links found"
-          message:@"The app downloaded suggested routes but the diagnostic viewer has not found an accessible public route URL in its response. You can still share the log to inspect the format."
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"No route geometry available"
+          message:@"The list response does not contain a decodable route line or supported public link. Please share the log so its geometry structure can be checked."
           preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK"
             style:UIAlertActionStyleDefault handler:nil]];
@@ -447,23 +436,9 @@ static SSDiagnostics *SDiagnostics;
         SLog(@"HUD_READY publicRoutes=1");
     }
     NSUInteger available=SSCSharedRoutesCount();
-    [SRouteButton setTitle:[NSString stringWithFormat:@"Public routes (%lu)",(unsigned long)available]
+    [SRouteButton setTitle:[NSString stringWithFormat:@"Route previews (%lu)",(unsigned long)available]
         forState:UIControlStateNormal];
-    SRouteButton.frame=CGRectMake(10,topY,145,37);
-    NSString *klass=NSStringFromClass(STop(base.rootViewController).class) ?: @"";
-    BOOL checkout=[klass containsString:@"Checkout"] || [klass containsString:@"Upsell"];
-    if (!SCloseOffer) {
-        SCloseOffer=[UIButton buttonWithType:UIButtonTypeSystem];
-        SCloseOffer.backgroundColor=[UIColor colorWithWhite:1 alpha:0.98];
-        SCloseOffer.tintColor=[UIColor darkGrayColor];
-        SCloseOffer.layer.cornerRadius=9;
-        SCloseOffer.titleLabel.font=[UIFont boldSystemFontOfSize:12];
-        [SCloseOffer setTitle:@"Close offer" forState:UIControlStateNormal];
-        [SCloseOffer addTarget:self action:@selector(closeOffer:) forControlEvents:UIControlEventTouchUpInside];
-        [surface addSubview:SCloseOffer];
-    }
-    SCloseOffer.frame=CGRectMake(w-112,topY+44,102,32);
-    SCloseOffer.hidden=!checkout || SShowingShare;
+    SRouteButton.frame=CGRectMake(10,topY,160,37);
     SShareButton.hidden=SShowingShare;
     SRouteButton.hidden=SShowingShare;
 }
@@ -572,7 +547,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.7.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 0.8.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
