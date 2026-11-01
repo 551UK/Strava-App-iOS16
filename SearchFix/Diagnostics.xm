@@ -5,7 +5,7 @@
 #import <substrate.h>
 
 // Optional, version-only request identity adapter for route/search requests.
-extern NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *));
+extern "C" NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *));
 
 // Private local diagnostics; never save headers, cookies, tokens,
 // raw URL paths/queries, request/response bodies, coordinates or search text.
