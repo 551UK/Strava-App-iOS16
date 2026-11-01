@@ -29,7 +29,7 @@ jobs:
           set -- NativeBridge/packages/*.deb
           test "$#" -eq 1
           test "$(dpkg-deb -f "$1" Package)" = "com.551uk.stravasearch16"
-          test "$(dpkg-deb -f "$1" Version)" = "1.3.0"
+          test "$(dpkg-deb -f "$1" Version)" = "1.4.0"
           dpkg-deb -x "$1" "$RUNNER_TEMP/native"
           file="$RUNNER_TEMP/native/var/jb/Library/MobileSubstrate/DynamicLibraries/StravaSearch16.dylib"
           test -s "$file"
@@ -37,16 +37,16 @@ jobs:
           xcrun lipo "$file" -verify_arch arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: StravaNativeBridge-1.3.0
+          name: StravaNativeBridge-1.4.0
           path: NativeBridge/packages/*.deb
           if-no-files-found: error
       - name: Release experimental build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="nativebridge-v1.3.0"
+          tag="nativebridge-v1.4.0"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" NativeBridge/packages/*.deb --clobber
           else
-            gh release create "$tag" NativeBridge/packages/*.deb --target "$GITHUB_SHA" --prerelease --title "Strava Native Bridge 1.3.0" --notes-file NativeBridge/README.md
+            gh release create "$tag" NativeBridge/packages/*.deb --target "$GITHUB_SHA" --prerelease --title "Strava Native Bridge 1.4.0" --notes-file NativeBridge/README.md
           fi
