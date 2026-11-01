@@ -10,7 +10,11 @@ extern "C" NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(N
 // Private local diagnostics; never save headers, cookies, tokens,
 // raw URL paths/queries, request/response bodies, coordinates or search text.
 // GraphQL JSON is inspected only for operation names and safe error codes.
+extern "C" void SSCSharedRoutesCaptureJSON(id obj);
+extern "C" NSUInteger SSCSharedRoutesCount(void);
+extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
+static UIButton *SRouteButton;
 static NSString *SLogPath;
 static NSMutableDictionary *STasks; // Only within the Strava process, main queue.
 static UIButton *SShareButton;
@@ -139,6 +143,7 @@ static void SInspectBody(NSURL *url, NSData *data) {
     if (!SBodyRelevant(url) || !data.length || data.length>1048576) return;
     id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (!obj) { SLog([NSString stringWithFormat:@"BODY_SHAPE %@ non-json bytes=%lu",SRequestLabel(url),(unsigned long)data.length]); return; }
+    if ([SRequestCategory(url) isEqualToString:@"graphql"]) SSCSharedRoutesCaptureJSON(obj);
     NSArray *fields=@[@"data",@"errors",@"error",@"message",@"code",@"status",@"features",@"suggestions",@"attribution",@"geocoding",@"routes",@"nodes",@"pageInfo",@"suggestedRoutesBySourceGeo",@"extensions",@"title",@"routeUrl",@"routeDetails",@"routePolylineData",@"legs",@"properties",@"geometry",@"coordinates",@"place_name",@"text",@"mapbox_id",@"name",@"full_address",@"place_formatted",@"location",@"entries",@"products",@"subscription",@"checkout"];
     NSMutableArray *queue=[NSMutableArray arrayWithObject:@{@"value":obj,@"path":@"root",@"depth":@0}];
     NSMutableArray *parts=[NSMutableArray new];
@@ -274,9 +279,15 @@ static NSString *STaskKey(NSURLSessionTask *task) {
 @interface SSDiagnostics : NSObject
 - (void)tick:(NSTimer *)timer;
 - (void)share:(id)sender;
+- (void)openSharedRoutes:(id)sender;
 @end
 static SSDiagnostics *SDiagnostics;
 @implementation SSDiagnostics
+- (void)openSharedRoutes:(id)sender {
+    UIWindow *window=SWindow();
+    UIViewController *top=STop(window.rootViewController);
+    if (top) SSCSharedRoutesShow(top);
+}
 - (void)share:(id)sender {
     UIWindow *window=SWindow();
     UIViewController *top=STop(window.rootViewController);
@@ -367,6 +378,32 @@ static SSDiagnostics *SDiagnostics;
         SShareButton.hidden=NO;
     } else if (SShareButton) {
         SShareButton.hidden=YES;
+    }
+    // Free public/shared-route viewer; only offered on checkout screens
+    // when an actual public route URL has been returned by SuggestedRoutes.
+    UIViewController *top=STop(window.rootViewController);
+    NSString *klass=NSStringFromClass(top.class) ?: @"";
+    BOOL checkout=[klass containsString:@"Checkout"] ||
+        [klass containsString:@"Upsell"];
+    NSUInteger available=SSCSharedRoutesCount();
+    if (window && checkout && available>0) {
+        if (!SRouteButton) {
+            SRouteButton=[UIButton buttonWithType:UIButtonTypeSystem];
+            SRouteButton.backgroundColor=[UIColor colorWithWhite:1 alpha:0.97];
+            SRouteButton.tintColor=[UIColor blackColor];
+            SRouteButton.layer.cornerRadius=12;
+            SRouteButton.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+            [SRouteButton setTitle:@"View shared routes" forState:UIControlStateNormal];
+            [SRouteButton addTarget:self action:@selector(openSharedRoutes:)
+                forControlEvents:UIControlEventTouchUpInside];
+        }
+        SRouteButton.frame=CGRectMake(14,
+            MAX(80,window.bounds.size.height-window.safeAreaInsets.bottom-168),159,35);
+        if (SRouteButton.superview!=window) [window addSubview:SRouteButton];
+        [window bringSubviewToFront:SRouteButton];
+        SRouteButton.hidden=NO;
+    } else if (SRouteButton) {
+        SRouteButton.hidden=YES;
     }
 }
 @end

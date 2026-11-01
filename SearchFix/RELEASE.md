@@ -1,7 +1,7 @@
-Diagnostic prerequisite for the planned native Strava search/route bridge. This is **not a completed bridge or a confirmed fix**.
+Experimental public-route viewer for Strava 422.0.1 on iOS 16. This **does not unlock subscription features** and has not been device-tested.
 
-Install over StravaSearch16 0.3.0, keep StravaCompat installed, fully quit Strava, then reproduce Maps search and tapping a route. Share the log using the existing button.
-
-Adds static endpoint labels and bounded response-shape summaries, including session-delegate responses that 0.3.0 missed. No raw request/response bodies, coordinates, route names, authentication headers or query text are logged. Native Strava screens remain in place.
-
-Both supplied IPAs were examined: 422.0.1 (49113, iOS 16) and 487.0.0 (55612, iOS 17). The newer app changes geocoding clients, but existing logs cannot establish the failing request or decoder contract. A targeted bridge requires that missing runtime evidence.
+- Captures `routeUrl`, title and length already returned by Strava's successful SuggestedRoutes query; never invents links.
+- If public Strava HTTPS route URLs are available, shows a **View shared routes** button on the checkout/trial screen. Select a route and view its public page in the built-in Safari controller.
+- Keeps diagnostics and StravaCompat unchanged. **StravaCompat → Version Headers must remain OFF**, which resolved the earlier Try Again errors.
+- If Strava returns no public route URLs or restricts their viewing, no content is bypassed. Share the log and report whether the button appears.
+- The older uploaded StravaPremium 375.0.0 IPA was inspected; its injected patch contains subscription/trial-related networking code but no demonstrated modern route-access fix.

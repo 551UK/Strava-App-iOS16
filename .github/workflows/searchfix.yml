@@ -29,7 +29,7 @@ jobs:
           set -- SearchFix/packages/*.deb
           test "$#" -eq 1
           test "$(dpkg-deb -f "$1" Package)" = "com.551uk.stravasearch16"
-          test "$(dpkg-deb -f "$1" Version)" = "0.5.0"
+          test "$(dpkg-deb -f "$1" Version)" = "0.6.0"
           test "$(dpkg-deb -f "$1" Architecture)" = "iphoneos-arm64"
           dpkg-deb -x "$1" "$RUNNER_TEMP/searchfix"
           root="$RUNNER_TEMP/searchfix/var/jb/Library/MobileSubstrate/DynamicLibraries"
@@ -38,16 +38,17 @@ jobs:
           strings "$root/StravaSearch16.dylib" | grep -F "HTTP_FINISH" >/dev/null
           strings "$root/StravaSearch16.dylib" | grep -F "GRAPHQL_ERRORS" >/dev/null
           strings "$root/StravaSearch16.dylib" | grep -F "SHARE_SNAPSHOT_BEGIN" >/dev/null
+          strings "$root/StravaSearch16.dylib" | grep -F "Shared route links" >/dev/null
           test -s "$root/StravaSearch16.plist"
           plutil -lint "$root/StravaSearch16.plist"
           xcrun lipo "$root/StravaSearch16.dylib" -verify_arch arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: StravaSearch16-0.5.0-diagnostics-rootless
+          name: StravaSearch16-0.6.0-diagnostics-rootless
           path: SearchFix/packages/*.deb
           if-no-files-found: error
       - name: Publish diagnostic prerequisite
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create searchfix-v0.5.0 SearchFix/packages/*.deb --target "$GITHUB_SHA" --prerelease --title "Strava Search 0.5.0 — bridge diagnostics" --notes-file SearchFix/RELEASE.md
+          gh release create searchfix-v0.6.0 SearchFix/packages/*.deb --target "$GITHUB_SHA" --prerelease --title "Strava Search 0.6.0 — bridge diagnostics" --notes-file SearchFix/RELEASE.md
