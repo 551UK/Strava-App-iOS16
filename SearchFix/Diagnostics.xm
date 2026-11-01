@@ -172,10 +172,11 @@ static SSDiagnostics *SDiagnostics;
               (unsigned long)STasks.count]);
     }
     SErrorVisible=retry;
-    if (retry && window) {
+    // Always show the small share button: WebKit/SwiftUI errors sometimes
+    // don't expose "Try Again" as a native UILabel/UIButton to inspect.
+    if (window) {
         if (!SShareButton) {
             SShareButton=[UIButton buttonWithType:UIButtonTypeSystem];
-            [SShareButton setTitle:@"Share Diagnostics" forState:UIControlStateNormal];
             SShareButton.backgroundColor=[UIColor colorWithRed:1 green:0.96 blue:0.92 alpha:0.98];
             SShareButton.tintColor=[UIColor colorWithRed:0.93 green:0.24 blue:0.03 alpha:1];
             SShareButton.layer.cornerRadius=11;
@@ -184,7 +185,14 @@ static SSDiagnostics *SDiagnostics;
             SShareButton.titleLabel.font=[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
             [SShareButton addTarget:self action:@selector(share:) forControlEvents:UIControlEventTouchUpInside];
         }
-        SShareButton.frame=CGRectMake(18,MAX(window.safeAreaInsets.top+14,85),155,37);
+        if (retry) {
+            [SShareButton setTitle:@"Share Diagnostics" forState:UIControlStateNormal];
+            SShareButton.frame=CGRectMake(18,MAX(window.safeAreaInsets.top+14,85),155,37);
+        } else {
+            [SShareButton setTitle:@"Share Log" forState:UIControlStateNormal];
+            SShareButton.frame=CGRectMake(MAX(18,window.bounds.size.width-118),
+                MAX(80,window.bounds.size.height-window.safeAreaInsets.bottom-168),102,35);
+        }
         if (SShareButton.superview!=window) [window addSubview:SShareButton];
         [window bringSubviewToFront:SShareButton];
         SShareButton.hidden=NO;
