@@ -18,7 +18,11 @@ extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
 static UIButton *SShareButton;
 static UIButton *SRouteButton;
+static UIButton *SOfferButton;
 static UIWindow *SHUDWindow;
+// Default to a diagnostic-only checkout suppression. It can always be toggled
+// off to let Strava's legitimate trial/subscribe UI work normally.
+static BOOL sHideRouteOffers=YES;
 static BOOL SShowingShare=NO;
 // Draggable HUD anchor; defaults to the right-hand map area, not the search box.
 static CGFloat SHUDAnchorY=-1;
@@ -41,6 +45,7 @@ static void SPrepareHUD(UIWindow *base) {
         SHUDWindow=nil;
         SShareButton=nil;
         SRouteButton=nil;
+        SOfferButton=nil;
     }
     if (!SHUDWindow) {
         STransparentWindow *w=[[STransparentWindow alloc] initWithWindowScene:base.windowScene];
@@ -322,6 +327,7 @@ static NSString *STaskKey(NSURLSessionTask *task) {
 - (void)share:(id)sender;
 - (void)openSharedRoutes:(id)sender;
 - (void)moveHUD:(UIPanGestureRecognizer *)pan;
+- (void)toggleOffers:(id)sender;
 @end
 static SSDiagnostics *SDiagnostics;
 @implementation SSDiagnostics
@@ -333,14 +339,23 @@ static SSDiagnostics *SDiagnostics;
     CGPoint change=[pan translationInView:surface];
     if (pan.state==UIGestureRecognizerStateChanged ||
         pan.state==UIGestureRecognizerStateEnded) {
-        SHUDAnchorY=MIN(MAX(75,SHUDAnchorY+change.y),MAX(75,h-150));
+        SHUDAnchorY=MIN(MAX(75,SHUDAnchorY+change.y),MAX(75,h-190));
         [pan setTranslation:CGPointZero inView:surface];
         CGFloat x=MAX(10,surface.bounds.size.width-154);
         SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
         SShareButton.frame=CGRectMake(x+27,SHUDAnchorY+43,117,34);
+        SOfferButton.frame=CGRectMake(x,SHUDAnchorY+82,144,32);
         if (pan.state==UIGestureRecognizerStateEnded)
             SLog(@"HUD_MOVED drag_completed");
     }
+}
+- (void)toggleOffers:(id)sender {
+    sHideRouteOffers=!sHideRouteOffers;
+    [SOfferButton setTitle:sHideRouteOffers ? @"Trial popup: Hidden" : @"Trial popup: Shown"
+      forState:UIControlStateNormal];
+    SOfferButton.tintColor=sHideRouteOffers ?
+       [UIColor colorWithRed:0.7 green:0.2 blue:0 alpha:1] : UIColor.systemBlueColor;
+    SLog([NSString stringWithFormat:@"CHECKOUT_UI_SWITCH hide=%d",sHideRouteOffers]);
 }
 - (void)openSharedRoutes:(id)sender {
     UIWindow *window=SWindow();
@@ -434,7 +449,7 @@ static SSDiagnostics *SDiagnostics;
     CGFloat w=surface.bounds.size.width;
     CGFloat h=surface.bounds.size.height;
     if (SHUDAnchorY<0) SHUDAnchorY=MAX(120,h*0.42);
-    SHUDAnchorY=MIN(MAX(75,SHUDAnchorY),MAX(75,h-150));
+    SHUDAnchorY=MIN(MAX(75,SHUDAnchorY),MAX(75,h-190));
     CGFloat x=MAX(10,w-154);
     if (!SShareButton) {
         SShareButton=[UIButton buttonWithType:UIButtonTypeSystem];
@@ -473,8 +488,28 @@ static SSDiagnostics *SDiagnostics;
     [SRouteButton setTitle:[NSString stringWithFormat:@"Strava routes (%lu)",(unsigned long)available]
         forState:UIControlStateNormal];
     SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
+    if (!SOfferButton) {
+        SOfferButton=[UIButton buttonWithType:UIButtonTypeSystem];
+        SOfferButton.backgroundColor=[UIColor colorWithWhite:1 alpha:0.97];
+        SOfferButton.layer.cornerRadius=9;
+        SOfferButton.titleLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        [SOfferButton addTarget:self action:@selector(toggleOffers:)
+           forControlEvents:UIControlEventTouchUpInside];
+        UIPanGestureRecognizer *offerPan=[[UIPanGestureRecognizer alloc]
+          initWithTarget:self action:@selector(moveHUD:)];
+        offerPan.cancelsTouchesInView=NO;
+        [SOfferButton addGestureRecognizer:offerPan];
+        [surface addSubview:SOfferButton];
+        [SOfferButton setTitle:sHideRouteOffers ? @"Trial popup: Hidden" : @"Trial popup: Shown"
+          forState:UIControlStateNormal];
+        SOfferButton.tintColor=sHideRouteOffers ?
+          [UIColor colorWithRed:0.7 green:0.2 blue:0 alpha:1] : UIColor.systemBlueColor;
+        SLog(@"CHECKOUT_UI_TOGGLE_READY default=hidden");
+    }
+    SOfferButton.frame=CGRectMake(x,SHUDAnchorY+82,144,32);
     SShareButton.hidden=SShowingShare;
     SRouteButton.hidden=SShowingShare;
+    SOfferButton.hidden=SShowingShare;
 }
 @end
 
@@ -604,22 +639,80 @@ static void SLogCheckoutPresentation(UIViewController *source,UIViewController *
        (unsigned long)sCheckoutPresentCount]);
 }
 
+// Trace the actual route/search destination after a real entitlement
+// becomes active. Log only class names and static code offsets, never
+// account identifiers, search queries, coordinates, or auth headers.
+static NSUInteger sFlowTraceCount=0;
+static BOOL SRelevantFlowName(NSString *name) {
+    if (!name.length) return NO;
+    return [name localizedCaseInsensitiveContainsString:@"Route"] ||
+      [name localizedCaseInsensitiveContainsString:@"Search"] ||
+      [name localizedCaseInsensitiveContainsString:@"Location"] ||
+      [name localizedCaseInsensitiveContainsString:@"Navigation"] ||
+      [name localizedCaseInsensitiveContainsString:@"MapView"];
+}
+static void STraceFlow(NSString *event,UIViewController *source,UIViewController *target) {
+    if (++sFlowTraceCount>55) return;
+    SLog([NSString stringWithFormat:
+      @"FLOW_%@ n=%lu source=%@ destination=%@ hiddenOffers=%d",
+      event,(unsigned long)sFlowTraceCount,SVCName(source),SVCName(target),sHideRouteOffers]);
+    NSArray<NSNumber *> *addresses=[NSThread callStackReturnAddresses];
+    NSUInteger i=0;
+    for (NSNumber *number in addresses) {
+        if (i>=18) break;
+        uintptr_t pc=(uintptr_t)[number unsignedLongLongValue];
+        Dl_info info={0};
+        if (pc && dladdr((void *)pc,&info) && info.dli_fbase && info.dli_fname) {
+            NSString *image=[@(info.dli_fname) lastPathComponent];
+            // Avoid excess system frames and focus on the Strava executable.
+            if ([image isEqualToString:@"Strava"] ||
+                [image isEqualToString:@"StravaSearch16.dylib"]) {
+                SLog([NSString stringWithFormat:
+                  @"FLOW_FRAME trace=%lu n=%lu image=%@ offset=0x%lx",
+                  (unsigned long)sFlowTraceCount,(unsigned long)i,
+                  image,(unsigned long)(pc-(uintptr_t)info.dli_fbase)]);
+            }
+        }
+        i++;
+    }
+}
 %hook UIViewController
 - (void)presentViewController:(UIViewController *)controllerToPresent
                      animated:(BOOL)animated completion:(void (^)(void))completion {
     NSString *destination=NSStringFromClass([controllerToPresent class]);
-    if ([destination containsString:@"CheckoutLoadingView"] ||
-        [destination containsString:@"Checkout19Checkout"])
+    BOOL checkout=[destination containsString:@"CheckoutLoadingView"] ||
+        [destination containsString:@"Checkout19Checkout"];
+    if (checkout) {
         SLogCheckoutPresentation(self,controllerToPresent,animated);
+        if (sHideRouteOffers) {
+            SLog(@"CHECKOUT_UI_SUPPRESSED reason=diagnostic_hide_offer (no route continuation invoked)");
+            // The modal is skipped, but neither user entitlement nor Strava's
+            // route-selection callback is altered. This is NOT paid access.
+            if (completion) completion();
+            return;
+        }
+    } else if (SRelevantFlowName(destination)) {
+        STraceFlow(@"PRESENT",self,controllerToPresent);
+    }
     %orig;
 }
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     NSString *name=NSStringFromClass([self class]);
-    if (!name || (SLastScreen && CFAbsoluteTimeGetCurrent()-SLastScreen<0.15)) return;
+    if (!name) return;
+    BOOL relevant=SRelevantFlowName(name) ||
+       [name containsString:@"Checkout"] || [name containsString:@"HostingController"];
+    if (!relevant && SLastScreen && CFAbsoluteTimeGetCurrent()-SLastScreen<0.15) return;
     SLastScreen=CFAbsoluteTimeGetCurrent();
-    // Type names only, no user-entered text or route names.
-    SLog([NSString stringWithFormat:@"UI_CONTROLLER %@",name]);
+    SLog([NSString stringWithFormat:@"UI_CONTROLLER %@ hiddenOffers=%d",name,sHideRouteOffers]);
+}
+%end
+%hook UINavigationController
+- (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
+    NSString *destination=NSStringFromClass([viewController class]);
+    if (SRelevantFlowName(destination))
+        STraceFlow(@"PUSH",self,viewController);
+    %orig;
 }
 %end
 
@@ -634,7 +727,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 1.0.1 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 1.2.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];

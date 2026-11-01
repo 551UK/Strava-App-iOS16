@@ -1,26 +1,25 @@
-# Strava Search iOS16 v1.1.0 — follow a downloaded route with GPS
+# StravaSearch16 v1.2.0 — compare navigation before and after a genuine trial
 
-The previous v1.0.1 MapKit **Route preview** displayed the geometry correctly, but had no Start/Follow control. This release adds a self-contained **Start following route** button inside that same map viewer.
+**Purpose:** determine what Strava 422.0.1 does *after* a trial becomes active, instead of speculatively recreating the route viewer or interpreting the checkout popup as a broken API.
 
-## What starting a route does
+## What is new
 
-- Requests the iPhone's normal **While Using the App** location authorization if needed. Never spoofs location or bypasses permission.
-- Shows the user's blue GPS dot, uses MapKit follow-with-heading mode and updates location on the displayed path.
-- Calculates the nearest segment on the **actual Strava polyline already returned by SuggestedRoutes**, and displays approximate remaining route distance and off-route deviation (metres).
-- A **Stop following** button stops active GPS updates. Closing the screen also stops the viewer's location updates.
-- Places the title in the safe area and adds a bottom status/button panel, correcting the prior screenshot's overlapping title and navigation elements.
-- Keeps map and route records in local process memory. No GPS samples or coordinates are saved to the tweak's diagnostics.
+- **Trial popup: Hidden** — a third, draggable overlay control alongside **Strava routes** and **Share Log**. It defaults to **Hidden**. When a `Checkout.CheckoutLoadingView` attempts to present, the tweak logs the caller and suppresses the UI presentation, leaving Strava's underlying screen visible. This does **not** call a route-detail continuation, grant subscription access, change a server response or unlock anything.
+- **Trial popup: Shown** — tap the same control to allow native checkout/trial screens normally. This is essential if you voluntarily decide to begin an actual trial through Strava. The control state resets to **Hidden** on a force-quit/relaunch; be sure to switch it to **Shown** before accessing native checkout.
+- **FLOW_PRESENT**, **FLOW_PUSH**, and **FLOW_FRAME** — new bounded call-stack tracing of native location/search/route/navigation controller presentations and navigation pushes, including in-process Mach-O-relative code offsets. Compare which native screen opens *after* a genuine trial, vs. the earlier free-account flow. Logs deliberately omit searches, locations, route IDs, credentials and response bodies.
+- Existing `CHECKOUT_PRESENT`, `CHECKOUT_FRAME`, `NATIVE_ROUTE_SCAN` and `UI_CONTROLLER` logging remains.
+- Original downloaded-route MapKit GPS-follow mode from 1.1.0 remains, as do the draggable overlay controls. Login tweak StravaCompat has **not been changed**.
 
-## Limits
+## What this does not do
 
-**Following is a read-only, self-contained GPS guide inside the SearchFix MapKit viewer**, not Strava's native subscriber-only route navigation. It does **not** start an activity recording, upload a route, create turn-by-turn instructions, provide voice guidance, or request access to subscription-only server APIs. The status is approximate (especially on overlapping loops or complex route branches), and GPS/map guidance should not be used as a sole source of safety-critical directions. The map updates while the viewer is active and the OS allows access.
+Hiding the checkout UI is purely a **presentation experiment**. If the free account lacks route discovery access, the Strava search field and route selection might remain in the prior UI or do nothing. That is **not** a failure of this test; it means the native client never called the route-detail continuation. An independent read-only MapKit route follower is available separately in `Strava routes (N)`. This add-on does not spoof entitlements, trial records or StoreKit receipts, and does not fabricate route identifiers or modify purchases.
 
-## Test
+## How to capture useful A/B logs
 
-1. Install v1.1.0 over v1.0.1. Leave **StravaCompat → Version Headers OFF**.
-2. Open Maps, use the unobtrusive **Strava routes (N)** button, choose a route.
-3. On the map, tap **Start following route**. Approve While Using location access if prompted.
-4. The map should centre on the blue location marker and show your approximate deviation from the path and remaining distance. Press **Stop following** to end guidance.
-5. If you need native Strava recording instead, it is **not included** in this viewer; Strava's route-detail feature may still require a subscription.
+1. Install this add-on over v1.1.0; keep StravaCompat installed with **Version Headers OFF**.
+2. **Free account control:** restart Strava, leave **Trial popup: Hidden**, tap **Search locations**, tap a suggested route, then **Share Log**. This records the suppressed checkout and any attempted continuation without starting a trial.
+3. **Optional genuine trial:** if you personally choose to use Strava's offer, tap **Trial popup: Hidden** once to change it to **Trial popup: Shown**; then use Strava's ordinary trial screen. Review the actual renewal terms and cancel before billing if desired. Only the user can authorise a subscription.
+4. **Genuine-trial comparison:** force-close/reopen Strava (which resets the overlay to Hidden, but **does not** alter your real subscription state). Test Search locations and the **same route** using the *native Strava buttons*, not our `Strava routes (N)` viewer, then tap Share Log. These traces should expose the actual location-search controller, route-detail controller, navigation destination, and any additional GraphQL requests permitted to a trial account.
+5. Send the diagnostic file from both conditions and describe which button was pressed at each test. The log is in Strava's sandbox under `Library/Caches/StravaSearch16/diagnostics.txt`. It rotates at 1 MB, so share each log before it rolls if you need separate sessions.
 
-All of v1.0.1's route data extraction, deep-link routing attempt, diagnostics, and draggable floating buttons remain unchanged.
+**Important:** Use actual Strava trial access only if you want it; testing the popup suppression does not require one. Trial expiry or billing cannot be controlled by the tweak. No data is saved or sent automatically by this tweak.
