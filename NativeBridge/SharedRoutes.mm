@@ -24,17 +24,24 @@ static NSString *RURLKind(id raw) {
     NSString *host=c.host.lowercaseString ?: @"";
     NSString *p=c.path.lowercaseString ?: @"";
     if ([scheme isEqualToString:@"strava"] &&
-        ([host isEqualToString:@"route"] || [host isEqualToString:@"routes"]) &&
+        ([host isEqualToString:@"route"] || [host isEqualToString:@"routes"] ||
+         [host isEqualToString:@"routing"]) &&
         p.length>1) return @"strava-deep-link";
     if ([scheme isEqualToString:@"https"] &&
         ([host isEqualToString:@"strava.com"] || [host hasSuffix:@".strava.com"]) &&
         [p containsString:@"/routes/"]) return @"https-strava-route";
     if (!scheme.length &&
         ([p hasPrefix:@"/route/suggested/"] || [p hasPrefix:@"/route/"] ||
-         [p hasPrefix:@"/routes/"])) return @"relative-route";
+         [p hasPrefix:@"/routes/"] ||
+         [p hasPrefix:@"/routing/suggested_routes/"])) return @"relative-route";
     // Opaque routeUrl values must not be converted into arbitrary route IDs.
-    if (!scheme.length && [value rangeOfString:@"/"].location==NSNotFound)
+    if (!scheme.length && [value rangeOfString:@"/"].location==NSNotFound) {
+        NSCharacterSet *notDigits=[[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+        if (value.length>=4 && value.length<=20 &&
+            [value rangeOfCharacterFromSet:notDigits].location==NSNotFound)
+            return @"numeric-route-id";
         return @"opaque";
+    }
     return @"other-url";
 }
 static NSURL *RNativeOrPublicURL(id raw) {
@@ -48,6 +55,9 @@ static NSURL *RNativeOrPublicURL(id raw) {
              [relative hasPrefix:@"/"] ? [relative substringFromIndex:1] : relative];
         return [NSURL URLWithString:native];
     }
+    if ([kind isEqualToString:@"numeric-route-id"])
+        return [NSURL URLWithString:[@"strava://routing/suggested_routes/"
+            stringByAppendingString:(NSString *)raw]];
     return nil;
 }
 // Encoded polyline decoder. Coordinates remain in process memory only.
@@ -119,7 +129,7 @@ extern "C" void SSCSharedRoutesCaptureJSON(id body,void (*logger)(NSString *)) {
         NSURL *url=RNativeOrPublicURL(raw);
         if ([kind isEqualToString:@"https-strava-route"]) publicLinks++;
         else if ([kind isEqualToString:@"strava-deep-link"]) nativeLinks++;
-        else if ([kind isEqualToString:@"relative-route"]) relativeLinks++;
+        else if ([kind isEqualToString:@"relative-route"] || [kind isEqualToString:@"numeric-route-id"]) relativeLinks++;
         else if ([kind isEqualToString:@"opaque"]) opaque++;
         else if ([kind isEqualToString:@"missing"]) missing++;
         else unknownLinks++;
