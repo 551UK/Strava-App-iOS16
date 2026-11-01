@@ -17,7 +17,7 @@ static NSURL *ValidatedPublicRouteURL(NSString *raw) {
     if (!c.URL) return nil;
     return c.URL;
 }
-extern "C" void SSCSharedRoutesCaptureJSON(id obj) {
+extern "C" void SSCSharedRoutesCaptureJSON(id obj, void (*logger)(NSString *)) {
     if (![obj isKindOfClass:[NSDictionary class]]) return;
     id data=[obj objectForKey:@"data"];
     if (![data isKindOfClass:[NSDictionary class]]) return;
@@ -29,10 +29,15 @@ extern "C" void SSCSharedRoutesCaptureJSON(id obj) {
     if (![nodes isKindOfClass:[NSArray class]]) return;
     NSMutableArray *arr=[NSMutableArray array];
     NSMutableSet *seen=[NSMutableSet set];
+    NSUInteger missing=0, rejected=0, valid=0;
+
     for (id item in (NSArray *)nodes) {
         if (![item isKindOfClass:[NSDictionary class]]) continue;
         NSString *raw=[item objectForKey:@"routeUrl"];
         NSURL *url=ValidatedPublicRouteURL(raw);
+        if (![raw isKindOfClass:[NSString class]] || !raw.length) missing++;
+        else if (!url) rejected++;
+        else valid++;
         if (!url || [seen containsObject:url.absoluteString]) continue;
         NSString *title=[item objectForKey:@"title"];
         if (![title isKindOfClass:[NSString class]] || !title.length) title=@"Untitled route";
@@ -46,7 +51,11 @@ extern "C" void SSCSharedRoutesCaptureJSON(id obj) {
         [seen addObject:url.absoluteString];
         if (arr.count>=60) break;
     }
-    // Do not store route names, IDs, or URLs on disk.
+    // Counts are privacy-safe: no route titles/URLs are written to the log.
+    if (logger) logger([NSString stringWithFormat:
+        @"PUBLIC_ROUTE_SCAN nodes=%lu valid=%lu missing=%lu rejected=%lu",
+        (unsigned long)[(NSArray *)nodes count],(unsigned long)valid,
+        (unsigned long)missing,(unsigned long)rejected]);
     dispatch_async(dispatch_get_main_queue(), ^{
         // Reuse the latest complete response (5 or 15 routes); preserve data
         // if a paginated request temporarily returns an empty page.

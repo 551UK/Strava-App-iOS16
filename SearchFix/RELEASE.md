@@ -1,7 +1,8 @@
-Experimental public-route viewer for Strava 422.0.1 on iOS 16. This **does not unlock subscription features** and has not been device-tested.
+v0.7.0 — diagnostic UI above Strava modal offers.
 
-- Captures `routeUrl`, title and length already returned by Strava's successful SuggestedRoutes query; never invents links.
-- If public Strava HTTPS route URLs are available, shows a **View shared routes** button on the checkout/trial screen. Select a route and view its public page in the built-in Safari controller.
-- Keeps diagnostics and StravaCompat unchanged. **StravaCompat → Version Headers must remain OFF**, which resolved the earlier Try Again errors.
-- If Strava returns no public route URLs or restricts their viewing, no content is bypassed. Share the log and report whether the button appears.
-- The older uploaded StravaPremium 375.0.0 IPA was inspected; its injected patch contains subscription/trial-related networking code but no demonstrated modern route-access fix.
+- Fixes hidden **Share Log** and **Public routes (N)** controls by placing them in a transparent high-level UIWindow. Empty overlay areas pass touches through.
+- Logs `PUBLIC_ROUTE_SCAN nodes/valid/missing/rejected` so we can establish whether Strava's SuggestedRoutes response contains public route URLs.
+- Adds **Close offer**, a manual dismiss action equivalent to the X on the trial offer. This does not unlock subscription features.
+- Keeps the native app, StravaCompat, purchase state and permissions unchanged. **Version Headers must remain OFF.**
+- The previously supplied Premium 375 IPA was inspected as a reference, but its injected network hook does not establish present-day route availability and has not been copied.
+- Device behaviour has not yet been verified; if overlays remain absent, use Filza to export the diagnostics log.

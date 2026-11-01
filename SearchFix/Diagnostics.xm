@@ -10,11 +10,49 @@ extern "C" NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(N
 // Private local diagnostics; never save headers, cookies, tokens,
 // raw URL paths/queries, request/response bodies, coordinates or search text.
 // GraphQL JSON is inspected only for operation names and safe error codes.
-extern "C" void SSCSharedRoutesCaptureJSON(id obj);
+extern "C" void SSCSharedRoutesCaptureJSON(id obj, void (*logger)(NSString *));
 extern "C" NSUInteger SSCSharedRoutesCount(void);
 extern "C" void SSCSharedRoutesShow(UIViewController *presenter);
 static dispatch_queue_t SLogQueue;
 static UIButton *SRouteButton;
+static UIButton *SCloseOffer;
+static UIWindow *SHUDWindow;
+static BOOL SShowingShare=NO;
+
+// Separate passthrough window stays above Strava's full-screen checkout window.
+// Empty HUD space remains touch-transparent; the underlying app still works.
+@interface STransparentWindow : UIWindow
+@end
+@implementation STransparentWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit=[super hitTest:point withEvent:event];
+    return (hit==self || hit==self.rootViewController.view) ? nil : hit;
+}
+@end
+static void SPrepareHUD(UIWindow *base) {
+    if (!base.windowScene) return;
+    if (SHUDWindow && SHUDWindow.windowScene!=base.windowScene) {
+        SHUDWindow.hidden=YES;
+        SHUDWindow=nil;
+        SShareButton=nil;
+        SRouteButton=nil;
+        SCloseOffer=nil;
+    }
+    if (!SHUDWindow) {
+        STransparentWindow *w=[[STransparentWindow alloc] initWithWindowScene:base.windowScene];
+        w.frame=base.windowScene.coordinateSpace.bounds;
+        w.opaque=NO;
+        w.backgroundColor=[UIColor clearColor];
+        w.windowLevel=UIWindowLevelAlert+15;
+        UIViewController *root=[UIViewController new];
+        root.view.backgroundColor=[UIColor clearColor];
+        root.view.opaque=NO;
+        w.rootViewController=root;
+        SHUDWindow=w;
+    }
+    SHUDWindow.frame=base.windowScene.coordinateSpace.bounds;
+    SHUDWindow.hidden=NO;  // intentionally never becomeKeyWindow
+}
 static NSString *SLogPath;
 static NSMutableDictionary *STasks; // Only within the Strava process, main queue.
 static UIButton *SShareButton;
@@ -143,7 +181,7 @@ static void SInspectBody(NSURL *url, NSData *data) {
     if (!SBodyRelevant(url) || !data.length || data.length>1048576) return;
     id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (!obj) { SLog([NSString stringWithFormat:@"BODY_SHAPE %@ non-json bytes=%lu",SRequestLabel(url),(unsigned long)data.length]); return; }
-    if ([SRequestCategory(url) isEqualToString:@"graphql"]) SSCSharedRoutesCaptureJSON(obj);
+    if ([SRequestCategory(url) isEqualToString:@"graphql"]) SSCSharedRoutesCaptureJSON(obj,SLog);
     NSArray *fields=@[@"data",@"errors",@"error",@"message",@"code",@"status",@"features",@"suggestions",@"attribution",@"geocoding",@"routes",@"nodes",@"pageInfo",@"suggestedRoutesBySourceGeo",@"extensions",@"title",@"routeUrl",@"routeDetails",@"routePolylineData",@"legs",@"properties",@"geometry",@"coordinates",@"place_name",@"text",@"mapbox_id",@"name",@"full_address",@"place_formatted",@"location",@"entries",@"products",@"subscription",@"checkout"];
     NSMutableArray *queue=[NSMutableArray arrayWithObject:@{@"value":obj,@"path":@"root",@"depth":@0}];
     NSMutableArray *parts=[NSMutableArray new];
@@ -280,18 +318,40 @@ static NSString *STaskKey(NSURLSessionTask *task) {
 - (void)tick:(NSTimer *)timer;
 - (void)share:(id)sender;
 - (void)openSharedRoutes:(id)sender;
+- (void)closeOffer:(id)sender;
 @end
 static SSDiagnostics *SDiagnostics;
 @implementation SSDiagnostics
-- (void)openSharedRoutes:(id)sender {
+- (void)closeOffer:(id)sender {
     UIWindow *window=SWindow();
     UIViewController *top=STop(window.rootViewController);
-    if (top) SSCSharedRoutesShow(top);
+    NSString *className=NSStringFromClass(top.class) ?: @"";
+    if (!([className containsString:@"Checkout"] || [className containsString:@"Upsell"])) return;
+    SLog(@"USER_DISMISS_CHECKOUT");
+    [top dismissViewControllerAnimated:YES completion:nil];
+}
+- (void)openSharedRoutes:(id)sender {
+    UIWindow *window=SWindow();
+    SLog([NSString stringWithFormat:@"USER_PUBLIC_ROUTE_VIEWER count=%lu",
+      (unsigned long)SSCSharedRoutesCount()]);
+    UIViewController *top=STop(SHUDWindow.rootViewController ?: window.rootViewController);
+    if (!top) return;
+    if (SSCSharedRoutesCount()) {
+        SSCSharedRoutesShow(top);
+    } else {
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"No public route links found"
+          message:@"The app downloaded suggested routes but the diagnostic viewer has not found an accessible public route URL in its response. You can still share the log to inspect the format."
+          preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK"
+            style:UIAlertActionStyleDefault handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    }
 }
 - (void)share:(id)sender {
     UIWindow *window=SWindow();
-    UIViewController *top=STop(window.rootViewController);
+    UIViewController *top=STop(SHUDWindow.rootViewController ?: window.rootViewController);
     if (!top) return;
+    SShowingShare=YES;
     SLog(@"SHARE_SNAPSHOT_BEGIN");
     CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
     unsigned int count=0;
@@ -319,6 +379,9 @@ static SSDiagnostics *SDiagnostics;
     NSURL *file=[NSURL fileURLWithPath:path];
     UIActivityViewController *share=[[UIActivityViewController alloc]
       initWithActivityItems:@[file] applicationActivities:nil];
+    share.completionWithItemsHandler=^(UIActivityType activity,BOOL complete,NSArray *items,NSError *error) {
+        SShowingShare=NO;
+    };
     if (share.popoverPresentationController) {
         share.popoverPresentationController.sourceView=SShareButton ?: window;
         share.popoverPresentationController.sourceRect=SShareButton ?
@@ -352,59 +415,57 @@ static SSDiagnostics *SDiagnostics;
               (unsigned long)STasks.count]);
     }
     SErrorVisible=retry;
-    // Always show the small share button: WebKit/SwiftUI errors sometimes
-    // don't expose "Try Again" as a native UILabel/UIButton to inspect.
-    if (window) {
-        if (!SShareButton) {
-            SShareButton=[UIButton buttonWithType:UIButtonTypeSystem];
-            SShareButton.backgroundColor=[UIColor colorWithRed:1 green:0.96 blue:0.92 alpha:0.98];
-            SShareButton.tintColor=[UIColor colorWithRed:0.93 green:0.24 blue:0.03 alpha:1];
-            SShareButton.layer.cornerRadius=11;
-            SShareButton.layer.borderWidth=1;
-            SShareButton.layer.borderColor=[UIColor colorWithRed:1 green:0.45 blue:0.2 alpha:1].CGColor;
-            SShareButton.titleLabel.font=[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-            [SShareButton addTarget:self action:@selector(share:) forControlEvents:UIControlEventTouchUpInside];
-        }
-        if (retry) {
-            [SShareButton setTitle:@"Share Diagnostics" forState:UIControlStateNormal];
-            SShareButton.frame=CGRectMake(18,MAX(window.safeAreaInsets.top+14,85),155,37);
-        } else {
-            [SShareButton setTitle:@"Share Log" forState:UIControlStateNormal];
-            SShareButton.frame=CGRectMake(MAX(18,window.bounds.size.width-118),
-                MAX(80,window.bounds.size.height-window.safeAreaInsets.bottom-168),102,35);
-        }
-        if (SShareButton.superview!=window) [window addSubview:SShareButton];
-        [window bringSubviewToFront:SShareButton];
-        SShareButton.hidden=NO;
-    } else if (SShareButton) {
-        SShareButton.hidden=YES;
+    UIWindow *base=SWindow();
+    if (!base) return;
+    SPrepareHUD(base);
+    UIView *surface=SHUDWindow.rootViewController.view;
+    CGFloat w=surface.bounds.size.width;
+    CGFloat topY=MAX(60,base.safeAreaInsets.top+8);
+    if (!SShareButton) {
+        SShareButton=[UIButton buttonWithType:UIButtonTypeSystem];
+        SShareButton.backgroundColor=[UIColor colorWithRed:1 green:0.96 blue:0.91 alpha:0.98];
+        SShareButton.tintColor=[UIColor colorWithRed:0.8 green:0.2 blue:0 alpha:1];
+        SShareButton.layer.cornerRadius=10;
+        SShareButton.titleLabel.font=[UIFont boldSystemFontOfSize:13];
+        [SShareButton setTitle:@"Share Log" forState:UIControlStateNormal];
+        [SShareButton addTarget:self action:@selector(share:) forControlEvents:UIControlEventTouchUpInside];
+        [surface addSubview:SShareButton];
+        SLog(@"HUD_READY share=1");
     }
-    // Free public/shared-route viewer; only offered on checkout screens
-    // when an actual public route URL has been returned by SuggestedRoutes.
-    UIViewController *top=STop(window.rootViewController);
-    NSString *klass=NSStringFromClass(top.class) ?: @"";
-    BOOL checkout=[klass containsString:@"Checkout"] ||
-        [klass containsString:@"Upsell"];
+    SShareButton.frame=CGRectMake(w-120,topY,110,37);
+    if (!SRouteButton) {
+        SRouteButton=[UIButton buttonWithType:UIButtonTypeSystem];
+        SRouteButton.backgroundColor=[UIColor colorWithWhite:1 alpha:0.98];
+        SRouteButton.tintColor=UIColor.blackColor;
+        SRouteButton.layer.borderWidth=1;
+        SRouteButton.layer.borderColor=UIColor.systemOrangeColor.CGColor;
+        SRouteButton.layer.cornerRadius=10;
+        SRouteButton.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        [SRouteButton addTarget:self action:@selector(openSharedRoutes:)
+            forControlEvents:UIControlEventTouchUpInside];
+        [surface addSubview:SRouteButton];
+        SLog(@"HUD_READY publicRoutes=1");
+    }
     NSUInteger available=SSCSharedRoutesCount();
-    if (window && checkout && available>0) {
-        if (!SRouteButton) {
-            SRouteButton=[UIButton buttonWithType:UIButtonTypeSystem];
-            SRouteButton.backgroundColor=[UIColor colorWithWhite:1 alpha:0.97];
-            SRouteButton.tintColor=[UIColor blackColor];
-            SRouteButton.layer.cornerRadius=12;
-            SRouteButton.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-            [SRouteButton setTitle:@"View shared routes" forState:UIControlStateNormal];
-            [SRouteButton addTarget:self action:@selector(openSharedRoutes:)
-                forControlEvents:UIControlEventTouchUpInside];
-        }
-        SRouteButton.frame=CGRectMake(14,
-            MAX(80,window.bounds.size.height-window.safeAreaInsets.bottom-168),159,35);
-        if (SRouteButton.superview!=window) [window addSubview:SRouteButton];
-        [window bringSubviewToFront:SRouteButton];
-        SRouteButton.hidden=NO;
-    } else if (SRouteButton) {
-        SRouteButton.hidden=YES;
+    [SRouteButton setTitle:[NSString stringWithFormat:@"Public routes (%lu)",(unsigned long)available]
+        forState:UIControlStateNormal];
+    SRouteButton.frame=CGRectMake(10,topY,145,37);
+    NSString *klass=NSStringFromClass(STop(base.rootViewController).class) ?: @"";
+    BOOL checkout=[klass containsString:@"Checkout"] || [klass containsString:@"Upsell"];
+    if (!SCloseOffer) {
+        SCloseOffer=[UIButton buttonWithType:UIButtonTypeSystem];
+        SCloseOffer.backgroundColor=[UIColor colorWithWhite:1 alpha:0.98];
+        SCloseOffer.tintColor=[UIColor darkGrayColor];
+        SCloseOffer.layer.cornerRadius=9;
+        SCloseOffer.titleLabel.font=[UIFont boldSystemFontOfSize:12];
+        [SCloseOffer setTitle:@"Close offer" forState:UIControlStateNormal];
+        [SCloseOffer addTarget:self action:@selector(closeOffer:) forControlEvents:UIControlEventTouchUpInside];
+        [surface addSubview:SCloseOffer];
     }
+    SCloseOffer.frame=CGRectMake(w-112,topY+44,102,32);
+    SCloseOffer.hidden=!checkout || SShowingShare;
+    SShareButton.hidden=SShowingShare;
+    SRouteButton.hidden=SShowingShare;
 }
 @end
 
@@ -511,7 +572,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.4.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 0.7.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
