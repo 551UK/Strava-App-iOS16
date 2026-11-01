@@ -20,6 +20,8 @@ static UIButton *SShareButton;
 static UIButton *SRouteButton;
 static UIWindow *SHUDWindow;
 static BOOL SShowingShare=NO;
+// Draggable HUD anchor; defaults to the right-hand map area, not the search box.
+static CGFloat SHUDAnchorY=-1;
 
 // Separate passthrough window stays above Strava's full-screen checkout window.
 // Empty HUD space remains touch-transparent; the underlying app still works.
@@ -34,6 +36,7 @@ static BOOL SShowingShare=NO;
 static void SPrepareHUD(UIWindow *base) {
     if (!base.windowScene) return;
     if (SHUDWindow && SHUDWindow.windowScene!=base.windowScene) {
+        SHUDAnchorY=-1;
         SHUDWindow.hidden=YES;
         SHUDWindow=nil;
         SShareButton=nil;
@@ -318,9 +321,27 @@ static NSString *STaskKey(NSURLSessionTask *task) {
 - (void)tick:(NSTimer *)timer;
 - (void)share:(id)sender;
 - (void)openSharedRoutes:(id)sender;
+- (void)moveHUD:(UIPanGestureRecognizer *)pan;
 @end
 static SSDiagnostics *SDiagnostics;
 @implementation SSDiagnostics
+- (void)moveHUD:(UIPanGestureRecognizer *)pan {
+    UIView *surface=SHUDWindow.rootViewController.view;
+    if (!surface) return;
+    CGFloat h=surface.bounds.size.height;
+    if (SHUDAnchorY<0) SHUDAnchorY=h*0.42;
+    CGPoint change=[pan translationInView:surface];
+    if (pan.state==UIGestureRecognizerStateChanged ||
+        pan.state==UIGestureRecognizerStateEnded) {
+        SHUDAnchorY=MIN(MAX(75,SHUDAnchorY+change.y),MAX(75,h-150));
+        [pan setTranslation:CGPointZero inView:surface];
+        CGFloat x=MAX(10,surface.bounds.size.width-154);
+        SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
+        SShareButton.frame=CGRectMake(x+27,SHUDAnchorY+43,117,34);
+        if (pan.state==UIGestureRecognizerStateEnded)
+            SLog(@"HUD_MOVED drag_completed");
+    }
+}
 - (void)openSharedRoutes:(id)sender {
     UIWindow *window=SWindow();
     SLog([NSString stringWithFormat:@"USER_ROUTE_PREVIEW_VIEWER count=%lu",
@@ -411,7 +432,10 @@ static SSDiagnostics *SDiagnostics;
     SPrepareHUD(base);
     UIView *surface=SHUDWindow.rootViewController.view;
     CGFloat w=surface.bounds.size.width;
-    CGFloat topY=MAX(60,base.safeAreaInsets.top+8);
+    CGFloat h=surface.bounds.size.height;
+    if (SHUDAnchorY<0) SHUDAnchorY=MAX(120,h*0.42);
+    SHUDAnchorY=MIN(MAX(75,SHUDAnchorY),MAX(75,h-150));
+    CGFloat x=MAX(10,w-154);
     if (!SShareButton) {
         SShareButton=[UIButton buttonWithType:UIButtonTypeSystem];
         SShareButton.backgroundColor=[UIColor colorWithRed:1 green:0.96 blue:0.91 alpha:0.98];
@@ -420,10 +444,14 @@ static SSDiagnostics *SDiagnostics;
         SShareButton.titleLabel.font=[UIFont boldSystemFontOfSize:13];
         [SShareButton setTitle:@"Share Log" forState:UIControlStateNormal];
         [SShareButton addTarget:self action:@selector(share:) forControlEvents:UIControlEventTouchUpInside];
+        UIPanGestureRecognizer *logPan=[[UIPanGestureRecognizer alloc]
+            initWithTarget:self action:@selector(moveHUD:)];
+        logPan.cancelsTouchesInView=NO;
+        [SShareButton addGestureRecognizer:logPan];
         [surface addSubview:SShareButton];
         SLog(@"HUD_READY share=1");
     }
-    SShareButton.frame=CGRectMake(w-120,topY,110,37);
+    SShareButton.frame=CGRectMake(x+27,SHUDAnchorY+43,117,34);
     if (!SRouteButton) {
         SRouteButton=[UIButton buttonWithType:UIButtonTypeSystem];
         SRouteButton.backgroundColor=[UIColor colorWithWhite:1 alpha:0.98];
@@ -434,13 +462,17 @@ static SSDiagnostics *SDiagnostics;
         SRouteButton.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         [SRouteButton addTarget:self action:@selector(openSharedRoutes:)
             forControlEvents:UIControlEventTouchUpInside];
+        UIPanGestureRecognizer *routesPan=[[UIPanGestureRecognizer alloc]
+            initWithTarget:self action:@selector(moveHUD:)];
+        routesPan.cancelsTouchesInView=NO;
+        [SRouteButton addGestureRecognizer:routesPan];
         [surface addSubview:SRouteButton];
         SLog(@"HUD_READY publicRoutes=1");
     }
     NSUInteger available=SSCSharedRoutesCount();
     [SRouteButton setTitle:[NSString stringWithFormat:@"Strava routes (%lu)",(unsigned long)available]
         forState:UIControlStateNormal];
-    SRouteButton.frame=CGRectMake(10,topY,160,37);
+    SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
     SShareButton.hidden=SShowingShare;
     SRouteButton.hidden=SShowingShare;
 }
@@ -602,7 +634,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 1.0.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 1.0.1 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];

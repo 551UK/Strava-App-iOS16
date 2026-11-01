@@ -1,13 +1,7 @@
-v1.0.0 — test Strava's own route-detail destination rather than replacing its checkout.
+SearchFix v1.0.1 — fixes floating buttons obstructing Strava's search field.
 
-Static analysis of all three supplied IPAs (375/422/487) identified:
-`strava://route/suggested/:id/view_details`, `strava://route/:id/view_details`, `strava://routes/:id`.
-The 422 and 487 binaries also have separate `openRouteDetailPage` and `showUpsell` callbacks.
-
-- The overlay lists **Strava routes (N)** based on actual SuggestedRoutes records instead of hiding all records that lack a public https link.
-- Opens genuine Strava deep links returned by the API with Strava's own URL router. No route IDs are invented.
-- Accepts two observed polyline response shapes for the optional read-only map preview.
-- Logs only privacy-safe field-shape counters via `NATIVE_ROUTE_SCAN`.
-- Retains checkout call-stack tracing and Share Log.
-- Does not spoof subscription state, modify responses or automatically hide checkout; free-account server restrictions still apply.
-- **Version Headers OFF** remains necessary in StravaCompat. This is an unverified on-device experiment.
+- Moves **Strava routes (N)** and **Share Log** into a compact, **draggable** pair on the right-hand map area.
+- Both buttons remain clickable; dragging either moves them together without taking control of the underlying Strava screen.
+- Preserves v1.0.0 route-list extraction, native deep-link experiment, geometry preview and checkout caller tracing.
+- Does not alter StravaCompat login, server entitlement, purchase flow or Strava's subscription UI. Leave **Version Headers OFF**.
+- Compiled build; native route-detail opening still requires device verification.
