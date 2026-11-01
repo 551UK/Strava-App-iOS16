@@ -4,7 +4,6 @@
 <key>Enabled</key><true/>
 <key>AppVersion</key><string>486.0.2</string>
 <key>EnableLocalVersionCheck</key><true/>
-<key>SpoofHeaderVersions</key><true/>
 <key>SpoofIOSVersion</key><false/>
 <key>IOSVersion</key><string>17.7.2</string>
 </dict></plist>

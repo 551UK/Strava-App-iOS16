@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: stravacompat-v2-release
+  group: stravacompat-clean-release
   cancel-in-progress: true
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
           deb="$1"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
           test "$(dpkg-deb -f "$deb" Package)" = "com.551uk.stravacompat"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.2.0"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.3.0"
           dpkg-deb -x "$deb" "$RUNNER_TEMP/strava-package"
           root="$RUNNER_TEMP/strava-package/var/jb"
           tweak="$root/Library/MobileSubstrate/DynamicLibraries/StravaCompat.dylib"
@@ -70,13 +70,22 @@ jobs:
             plutil -lint "$p"
           done
           xcrun lipo "$tweak" -verify_arch arm64
+          # Enforce complete elimination of the old HTTP-header rewriting logic.
+          if strings "$tweak" | grep -E 'SpoofHeaderVersions|RewrittenHeaders|RewrittenHeader|HttpHeaders' ; then
+            echo "Unexpected removed header rewrite code in the compiled dylib"
+            exit 1
+          fi
+          if grep -q 'SpoofHeaderVersions\|Version Headers' "$bundle/Root.plist"; then
+            echo "Obsolete Version Headers preference remains visible"
+            exit 1
+          fi
           xcrun lipo "$bundle/StravaCompatPrefs" -verify_arch arm64
           dpkg-deb --info "$deb"
           echo "Verified actual Strava icon and Settings entry in the rootless package"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: StravaCompat-0.2.0-rootless
+          name: StravaCompat-0.3.0-rootless
           path: packages/*.deb
           if-no-files-found: error
 
@@ -88,14 +97,29 @@ jobs:
           set -euo pipefail
           version="$(sed -n 's/^Version: //p' control)"
           tag="v$version"
-          notes="StravaCompat for Strava 422.0.1 on rootless iOS 16. Editable Strava and iOS version fields in Settings, local version checks, selected HTTP version headers, and official Strava Settings icon. iOS spoof is off by default; fully close and reopen Strava after changes."
+          notes="StravaCompat for Strava 422.0.1 on rootless iOS 16. Retains main-bundle app-version spoofing and guarded local app-version validation. HTTP Version Headers rewriting and its Settings option have been removed completely. The optional iOS spoof stays off by default. Fully quit and reopen Strava after installing."
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" packages/*.deb --clobber
             gh release edit "$tag" --title "StravaCompat $version" --notes "$notes"
           else
             gh release create "$tag" packages/*.deb --target "$GITHUB_SHA" --title "StravaCompat $version" --notes "$notes"
           fi
-          while read -r asset; do
-            test -z "$asset" && continue
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset"
-          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name != "v0.2.0") | .assets[] | select(.name | startswith("com.551uk.stravacompat_")) | .id')
+
+          # User-requested one-release cleanup: remove old SearchFix and
+          # obsolete StravaCompat releases and their associated git tags.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | .tag_name' | while IFS= read -r oldtag; do
+              test -z "$oldtag" && continue
+              test "$oldtag" = "$tag" && continue
+              gh release delete "$oldtag" --yes --cleanup-tag
+            done
+
+          # Remove any orphaned old tags even when they have no release.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/" \
+            --jq '.[].ref' | while IFS= read -r ref; do
+              test -z "$ref" && continue
+              test "$ref" = "refs/tags/$tag" && continue
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/$ref"
+            done
+
+          echo "Release cleanup complete. Only $tag retained."

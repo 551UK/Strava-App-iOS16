@@ -7,7 +7,7 @@
 #import <string.h>
 #import <stdlib.h>
 
-// Strava 422.0.1 compatibility diagnostic build.
+// Strava 422.0.1 rootless compatibility tweak. Version HTTP headers are never changed.
 // No global iOS spoof, CoreFoundation inline hook, token manipulation,
 // server-response modification or subscription bypass.
 static NSBundle *sMainBundle = nil;
@@ -15,7 +15,6 @@ static NSString *sVersion = @"486.0.2";
 static NSString *sIOSVersion = @"17.7.2";
 static BOOL sEnabled = YES;
 static BOOL sLocalCheck = YES;
-static BOOL sHeaderSpoof = YES;
 static BOOL sIOSSpoof = NO;
 
 
@@ -81,59 +80,12 @@ static NSString *ValidateVersion(id candidate) {
     return value;
 }
 
-static NSString *RewrittenHeader(NSString *value, NSString *field) {
-    if (!sEnabled || !sHeaderSpoof ||
-        ![value isKindOfClass:[NSString class]] ||
-        ![field isKindOfClass:[NSString class]]) return value;
-    NSString *key = [field lowercaseString];
-    if (!([key isEqualToString:@"user-agent"] ||
-          [key containsString:@"version"] ||
-          [key containsString:@"strava-client"] ||
-          [key isEqualToString:@"x-app-build"])) return value;
-    NSString *updated = [value stringByReplacingOccurrencesOfString:@"422.0.1"
-                                                           withString:sVersion];
-    return [updated stringByReplacingOccurrencesOfString:@"375.0.0"
-                                              withString:sVersion];
-}
-static NSDictionary *RewrittenHeaders(NSDictionary *headers) {
-    if (!sEnabled || !sHeaderSpoof ||
-        ![headers isKindOfClass:[NSDictionary class]]) return headers;
-    NSMutableDictionary *copy = [headers mutableCopy];
-    for (id field in headers) {
-        id value = [headers objectForKey:field];
-        if ([field isKindOfClass:[NSString class]] &&
-            [value isKindOfClass:[NSString class]]) {
-            [copy setObject:RewrittenHeader(value, field) forKey:field];
-        }
-    }
-    return copy;
-}
-
 %group AppBundle
 %hook NSBundle
 - (id)objectForInfoDictionaryKey:(NSString *)key {
     if (sEnabled && self == sMainBundle && [key isKindOfClass:[NSString class]]
         && [key isEqualToString:@"CFBundleShortVersionString"]) return sVersion;
     return %orig;
-}
-%end
-%end
-
-%group HttpHeaders
-%hook NSMutableURLRequest
-- (void)setValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
-    %orig(RewrittenHeader(value, field), field);
-}
-- (void)addValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
-    %orig(RewrittenHeader(value, field), field);
-}
-- (void)setAllHTTPHeaderFields:(NSDictionary *)headers {
-    %orig(RewrittenHeaders(headers));
-}
-%end
-%hook NSURLSessionConfiguration
-- (void)setHTTPAdditionalHeaders:(NSDictionary *)headers {
-    %orig(RewrittenHeaders(headers));
 }
 %end
 %end
@@ -197,8 +149,6 @@ static void InstallLocalCheckHook(void) {
             sEnabled = [p[@"Enabled"] boolValue];
         if ([p[@"EnableLocalVersionCheck"] respondsToSelector:@selector(boolValue)])
             sLocalCheck = [p[@"EnableLocalVersionCheck"] boolValue];
-        if ([p[@"SpoofHeaderVersions"] respondsToSelector:@selector(boolValue)])
-            sHeaderSpoof = [p[@"SpoofHeaderVersions"] boolValue];
         if ([p[@"SpoofIOSVersion"] respondsToSelector:@selector(boolValue)])
             sIOSSpoof = [p[@"SpoofIOSVersion"] boolValue];
         NSString *appVersion = ValidateVersion(p[@"AppVersion"]);
@@ -211,10 +161,9 @@ static void InstallLocalCheckHook(void) {
         }
 
         %init(AppBundle);
-        if (sHeaderSpoof) %init(HttpHeaders);
         if (sIOSSpoof) %init(OptionalIOS);
         InstallLocalCheckHook();
-        NSLog(@"[StravaCompat] ready; version=%@ local=%d headers=%d iOS=%d",
-              sVersion, sLocalCheck, sHeaderSpoof, sIOSSpoof);
+        NSLog(@"[StravaCompat] ready; version=%@ local=%d iOS=%d (HTTP version headers untouched)",
+              sVersion, sLocalCheck, sIOSSpoof);
     }
 }

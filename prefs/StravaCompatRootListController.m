@@ -73,12 +73,15 @@ static BOOL IsValidVersion(NSString *value) {
         @"Enabled": @YES,
         @"AppVersion": @"486.0.2",
         @"EnableLocalVersionCheck": @YES,
-        @"SpoofHeaderVersions": @YES,
         @"SpoofIOSVersion": @NO,
         @"IOSVersion": @"17.7.2"
     };
     for (NSString *key in defaults)
         SaveValue(key, defaults[key]);
+    // Discard any old obsolete setting (older releases enabled this by default).
+    CFPreferencesSetAppValue(CFSTR("SpoofHeaderVersions"), NULL,
+        (__bridge CFStringRef)kDomain);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)kDomain);
     [self reloadSpecifiers];
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"Default Settings Restored"

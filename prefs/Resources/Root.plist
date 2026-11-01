@@ -11,11 +11,10 @@
 <key>autocapitalizationType</key><integer>0</integer>
 <key>autocorrectionType</key><integer>1</integer></dict>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Compatibility</string>
-<key>footerText</key><string>Both options are enabled by default to preserve the current Strava login behaviour.</string></dict>
+<key>footerText</key><string>The local version check is enabled by default. HTTP version headers are never rewritten.</string></dict>
 <dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Local Version Check</string>
 <key>key</key><string>EnableLocalVersionCheck</string><key>default</key><true/></dict>
-<dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Version Headers</string>
-<key>key</key><string>SpoofHeaderVersions</string><key>default</key><true/></dict>
+
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Optional iOS Spoof</string>
 <key>footerText</key><string>Off by default. Reporting newer iOS versions can trigger unavailable APIs on iOS 16.</string></dict>
 <dict><key>cell</key><string>PSSwitchCell</string><key>defaults</key><string>com.551uk.stravacompat</string><key>PostNotification</key><string>com.551uk.stravacompat/preferences.changed</string><key>label</key><string>Spoof iOS Version</string>
