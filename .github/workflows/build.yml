@@ -1,61 +1,27 @@
-name: Build and release StravaCompat rootless
+name: Remove release DEB attachments
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+
 permissions:
   contents: write
-concurrency:
-  group: strava-rootless
-  cancel-in-progress: true
+
 jobs:
-  build:
-    runs-on: macos-15
+  cleanup:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Theos
-        uses: Randomblock1/theos-action@v1
-        with:
-          theos-sdks: https://github.com/theos/sdks
-          theos-sdks-branch: master
-      - name: Build rootless DEB
-        run: make clean package FINALPACKAGE=1
-      - name: Validate package
+      - name: Delete all .deb release assets
         shell: bash
-        run: |
-          set -euo pipefail
-          brew install dpkg
-          set -- packages/*.deb
-          test "$#" -eq 1
-          deb="$1"
-          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
-          test "$(dpkg-deb -f "$deb" Package)" = "com.551uk.stravacompat"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.1.1"
-          dpkg-deb -x "$deb" "$RUNNER_TEMP/strava-check"
-          dylib="$RUNNER_TEMP/strava-check/var/jb/Library/MobileSubstrate/DynamicLibraries/StravaCompat.dylib"
-          filter="$RUNNER_TEMP/strava-check/var/jb/Library/MobileSubstrate/DynamicLibraries/StravaCompat.plist"
-          test -s "$dylib"
-          test -s "$filter"
-          xcrun lipo "$dylib" -verify_arch arm64
-          plutil -lint "$filter"
-          dpkg-deb --info "$deb"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: StravaCompat-iOS16-rootless
-          path: packages/*.deb
-          if-no-files-found: error
-      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
-          version="$(sed -n 's/^Version: //p' control)"
-          tag="v$version"
-          notes="StravaCompat v0.1.1 for Strava 422.0.1 on rootless iOS 16. User reports this version working on-device. Guarded local isAppVersionValid check, app-version and HTTP header version reporting; iOS spoof disabled by default. No third-party Premium libraries included."
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" packages/*.deb --clobber
-            gh release edit "$tag" --title "StravaCompat $version — working build" --notes "$notes"
-          else
-            gh release create "$tag" packages/*.deb --target "$GITHUB_SHA" --title "StravaCompat $version — working build" --notes "$notes"
-          fi
+          mapfile -t ids < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | .assets[] | select(.name | endswith(".deb")) | .id')
+          echo "Found ${#ids[@]} .deb attachments"
+          for id in "${ids[@]}"; do
+            echo "Deleting asset $id"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
+          done
+          mapfile -t remaining < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | .assets[] | select(.name | endswith(".deb")) | .id')
+          test "${#remaining[@]}" -eq 0
+          echo "Release attachments cleaned"
