@@ -482,7 +482,6 @@ static SSDiagnostics *SDiagnostics;
         [surface addSubview:SRouteButton];
         SLog(@"HUD_READY publicRoutes=1");
     }
-    NSUInteger available=SSCSharedRoutesCount();
     [SRouteButton setTitle:@"Nearby walks"
         forState:UIControlStateNormal];
     SRouteButton.frame=CGRectMake(x,SHUDAnchorY,144,37);
