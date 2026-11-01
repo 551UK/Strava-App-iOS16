@@ -98,4 +98,4 @@ jobs:
           while read -r asset; do
             test -z "$asset" && continue
             gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset"
-          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name != "v0.2.0") | .assets[] | select(.name | endswith(".deb")) | .id')
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name != "v0.2.0") | .assets[] | select(.name | startswith("com.551uk.stravacompat_")) | .id')

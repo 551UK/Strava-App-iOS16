@@ -60,13 +60,24 @@ static NSString *SRequestCategory(NSURL *url) {
     if ([path containsString:@"activity"]) return @"activity";
     return @"other";
 }
+// Static endpoint names only: never emit a request path or an identifier.
+static NSString *SEndpoint(NSURL *url) {
+    NSString *p=url.path.lowercaseString ?: @"";
+    if ([p containsString:@"/search/searchbox/v1/suggest"]) return @"mapbox-suggest";
+    if ([p containsString:@"/search/searchbox/v1/retrieve/"]) return @"mapbox-retrieve";
+    if ([p containsString:@"/geocoding/v5/mapbox.places/"]) return @"mapbox-v5";
+    NSArray *names=@[@"reverse-map-search",@"map-search",@"autocomplete",@"reverse_geocode",@"get_coordinate",@"geocodeearth",@"checkout",@"subscriptions",@"subscription",@"routes",@"search",@"graphql"];
+    NSArray *parts=p.pathComponents;
+    for (NSString *name in names) if ([parts containsObject:name]) return name;
+    return @"unclassified";
+}
 static NSString *SRequestLabel(NSURL *url) {
     if (!url) return @"unknown";
     // Explicitly omit URL paths and query strings; routes and search keywords
     // can contain personally identifiable location/route data.
     NSString *host=[url.host lowercaseString] ?: @"unknown";
     if (host.length>100) host=[host substringToIndex:100];
-    return [NSString stringWithFormat:@"host=%@ category=%@",host,SRequestCategory(url)];
+    return [NSString stringWithFormat:@"host=%@ category=%@ endpoint=%@",host,SRequestCategory(url),SEndpoint(url)];
 }
 static NSString *SGraphQLOperation(NSURLRequest *request) {
     if (![SRequestCategory(request.URL) isEqualToString:@"graphql"]) return @"none";
@@ -108,6 +119,89 @@ static void SInspectGraphQLResponse(NSURL *url,NSData *data) {
     SLog([NSString stringWithFormat:@"GRAPHQL_ERRORS count=%lu codes=%@",
           (unsigned long)[(NSArray *)list count],
           codes.count ? [codes.array componentsJoinedByString:@","] : @"not-provided"]);
+}
+// Only predefined field names, types, counts and predefined error codes leave memory.
+static NSString *SJSONType(id value) {
+    if ([value isKindOfClass:[NSDictionary class]]) return @"object";
+    if ([value isKindOfClass:[NSArray class]]) return [NSString stringWithFormat:@"array(%lu)",(unsigned long)[value count]];
+    if ([value isKindOfClass:[NSString class]]) return @"string";
+    if ([value isKindOfClass:[NSNumber class]]) return @"number";
+    if (value==[NSNull null]) return @"null";
+    return @"absent";
+}
+static BOOL SBodyRelevant(NSURL *url) {
+    return [@[@"search",@"route",@"checkout",@"graphql"] containsObject:SRequestCategory(url)];
+}
+static void SInspectBody(NSURL *url, NSData *data) {
+    if (!SBodyRelevant(url) || !data.length || data.length>1048576) return;
+    id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (!obj) { SLog([NSString stringWithFormat:@"BODY_SHAPE %@ non-json bytes=%lu",SRequestLabel(url),(unsigned long)data.length]); return; }
+    NSArray *fields=@[@"data",@"errors",@"error",@"message",@"code",@"status",@"features",@"suggestions",@"attribution",@"geocoding",@"routes",@"nodes",@"pageInfo",@"suggestedRoutesBySourceGeo",@"extensions",@"title",@"routeUrl",@"routeDetails",@"routePolylineData",@"legs",@"properties",@"geometry",@"coordinates",@"place_name",@"text",@"mapbox_id",@"name",@"full_address",@"place_formatted",@"location",@"entries",@"products",@"subscription",@"checkout"];
+    NSMutableArray *queue=[NSMutableArray arrayWithObject:@{@"value":obj,@"path":@"root",@"depth":@0}];
+    NSMutableArray *parts=[NSMutableArray new];
+    while (queue.count && parts.count<64) {
+        NSDictionary *node=queue.firstObject; [queue removeObjectAtIndex:0];
+        id value=node[@"value"]; NSString *path=node[@"path"]; NSInteger depth=[node[@"depth"] integerValue];
+        [parts addObject:[NSString stringWithFormat:@"%@:%@",path,SJSONType(value)]];
+        if (depth>=5) continue;
+        if ([value isKindOfClass:[NSDictionary class]]) {
+            for (NSString *key in fields) if (value[key]) [queue addObject:@{@"value":value[key],@"path":[path stringByAppendingFormat:@".%@",key],@"depth":@(depth+1)}];
+        } else if ([value isKindOfClass:[NSArray class]] && [value count]) {
+            [queue addObject:@{@"value":[value firstObject],@"path":[path stringByAppendingString:@"[]"],@"depth":@(depth+1)}];
+        }
+    }
+    SLog([NSString stringWithFormat:@"BODY_SHAPE %@ %@",SRequestLabel(url),[parts componentsJoinedByString:@" "]]);
+    SInspectGraphQLResponse(url,data);
+}
+static char SBodyKey, SOverflowKey, SDelegateHookKey;
+static void SCollectData(NSURLSessionTask *task, NSData *data) {
+    if (!SBodyRelevant(task.originalRequest.URL)) return;
+    @synchronized(task) {
+        if (objc_getAssociatedObject(task,&SOverflowKey)) return;
+        NSMutableData *body=objc_getAssociatedObject(task,&SBodyKey);
+        if (!body) { body=[NSMutableData new]; objc_setAssociatedObject(task,&SBodyKey,body,OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        if (body.length+data.length>1048576) {
+            objc_setAssociatedObject(task,&SBodyKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(task,&SOverflowKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        } else [body appendData:data];
+    }
+}
+static void SCompleteData(NSURLSessionTask *task) {
+    NSData *body;
+    @synchronized(task) {
+        body=[objc_getAssociatedObject(task,&SBodyKey) copy];
+        objc_setAssociatedObject(task,&SBodyKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(task,&SOverflowKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    SInspectBody(task.originalRequest.URL,body);
+}
+static void SInstallDelegate(id delegate) {
+    if (!delegate) return;
+    @synchronized([NSURLSession class]) {
+        Class cls=object_getClass(delegate);
+        // Avoid wrapping inherited hooks twice. No delegate replacement/proxy.
+        for (Class c=cls;c;c=class_getSuperclass(c)) if (objc_getAssociatedObject(c,&SDelegateHookKey)) return;
+        SEL dataSel=@selector(URLSession:dataTask:didReceiveData:);
+        SEL doneSel=@selector(URLSession:task:didCompleteWithError:);
+        Method dm=class_getInstanceMethod(cls,dataSel), cm=class_getInstanceMethod(cls,doneSel);
+        if (!dm || !cm) { SLog(@"DELEGATE_BODY unavailable"); return; }
+        // Install an override when the app inherits these methods.
+        class_addMethod(cls,dataSel,method_getImplementation(dm),method_getTypeEncoding(dm));
+        class_addMethod(cls,doneSel,method_getImplementation(cm),method_getTypeEncoding(cm));
+        __block IMP oldData=NULL,oldDone=NULL;
+        IMP newData=imp_implementationWithBlock(^(id self,NSURLSession *session,NSURLSessionDataTask *task,NSData *data) {
+            SCollectData(task,data);
+            ((void(*)(id,SEL,id,id,id))oldData)(self,dataSel,session,task,data);
+        });
+        IMP newDone=imp_implementationWithBlock(^(id self,NSURLSession *session,NSURLSessionTask *task,NSError *error) {
+            SCompleteData(task);
+            ((void(*)(id,SEL,id,id,id))oldDone)(self,doneSel,session,task,error);
+        });
+        MSHookMessageEx(cls,dataSel,newData,&oldData);
+        MSHookMessageEx(cls,doneSel,newDone,&oldDone);
+        objc_setAssociatedObject(cls,&SDelegateHookKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        SLog(@"DELEGATE_BODY installed");
+    }
 }
 static void SFinish(NSURL *url, NSURLResponse *response, NSError *error) {
     NSInteger status=[response isKindOfClass:[NSHTTPURLResponse class]] ?
@@ -275,13 +369,17 @@ static SSDiagnostics *SDiagnostics;
 @end
 
 %hook NSURLSession
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration delegate:(id)delegate delegateQueue:(NSOperationQueue *)queue {
+    SInstallDelegate(delegate);
+    return %orig;
+}
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
       completionHandler:(void (^)(NSData *,NSURLResponse *,NSError *))completion {
     NSURL *url=request.URL;
     void (^wrapped)(NSData *,NSURLResponse *,NSError *) =
     ^(NSData *data,NSURLResponse *response,NSError *error) {
         SFinish(url,response,error);
-        SInspectGraphQLResponse(url,data);
+        SInspectBody(url,data);
         if (completion) completion(data,response,error);
     };
     return %orig(request,wrapped);
@@ -291,6 +389,7 @@ static SSDiagnostics *SDiagnostics;
     void (^wrapped)(NSData *,NSURLResponse *,NSError *) =
     ^(NSData *data,NSURLResponse *response,NSError *error) {
         SFinish(url,response,error);
+        SInspectBody(url,data);
         if (completion) completion(data,response,error);
     };
     return %orig(url,wrapped);
@@ -353,7 +452,7 @@ static void SetupStravaSearchDiagnostics(void) {
                   withIntermediateDirectories:YES attributes:nil error:nil];
         SLogPath=[folder stringByAppendingPathComponent:@"diagnostics.txt"];
         SLogQueue=dispatch_queue_create("uk.551.stravasearch.diagnostics", DISPATCH_QUEUE_SERIAL);
-        SLog(@"===== StravaSearch16 diagnostics 0.3.0 started; no credentials/URL queries recorded =====");
+        SLog(@"===== StravaSearch16 diagnostics 0.4.0 started; no credentials/URL queries recorded =====");
         %init;
         dispatch_async(dispatch_get_main_queue(), ^{
             STasks=[NSMutableDictionary new];
