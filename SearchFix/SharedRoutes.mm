@@ -133,7 +133,7 @@ extern "C" NSUInteger SSCSharedRoutesCount(void) {
     for (NSArray<NSValue *> *section in self.route[@"segments"]) {
         NSUInteger n=section.count;
         if (n<2 || n>20000) continue;
-        CLLocationCoordinate2D *coords=calloc(n,sizeof(CLLocationCoordinate2D));
+        CLLocationCoordinate2D *coords=(CLLocationCoordinate2D *)calloc(n,sizeof(CLLocationCoordinate2D));
         if (!coords) continue;
         for (NSUInteger j=0;j<n;j++) coords[j]=[section[j] MKCoordinateValue];
         MKPolyline *line=[MKPolyline polylineWithCoordinates:coords count:n];
