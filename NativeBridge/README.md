@@ -1,14 +1,20 @@
-# Strava Native Bridge v1.3.0 — experimental
+# Strava Native Bridge v1.4.0 — experimental
 
-This is a **separate rootless tweak** (`com.551uk.stravasearch16`) developed only on the `native-bridge` branch. The working StravaCompat v0.3.0 source, Settings, and release on `main` are untouched.
+Separate iOS 16 rootless add-on (`com.551uk.stravasearch16`) for Strava 422.0.1. The working **StravaCompat v0.3.0** login tweak and the `main` branch stay untouched.
 
-### What changed
-- Recognises Strava's internal `routing/suggested_routes` route links, which were excluded from the earlier parser, plus the existing `route`/`routes` destinations. Uses route identifiers only when actually supplied by Strava.
-- The native Strava search bar tap, when it otherwise leads to checkout, can open a **MapKit-based location-search fallback** (not the original Swift location search). This does not require a trial.
-- The normal route tap, when it otherwise leads to checkout, opens Strava's list of already-downloaded suggested routes. Selecting a recognised native link attempts Strava's own URL navigation first; when the returned data has no valid deep link, the read-only MapKit route viewer remains the fallback.
-- The draggable **Navigation test: On / Off** switch lets users return to Strava's normal checkout screens. The existing diagnostics and GPS following remain.
+## Nearby walking routes
 
-### Boundaries
-Opening Strava's route-detail endpoint is an experiment. Strava may independently require an active subscription for data or activity recording. This tweak neither grants entitlement nor intercepts receipts; it does not modify HTTP request headers. It has **not been verified on a device**.
+- Tapping the Strava search field and choosing a place now opens a route browser centred on that place, instead of a location-only preview.
+- The on-screen **Nearby walks** button opens the same browser around the phone's location (with normal iOS location permission).
+- **Swipe up** on the browser's bottom handle to see available walks. Select a walk to display its path on the map.
+- Previously received Strava route geometry is only listed if it actually falls within 8 km of the selected area. An old response from another city is not presented as nearby.
+- When Strava has no locally available route geometry, the browser searches for genuine nearby destinations and calculates pedestrian **out-and-back** routes using Apple's MapKit walking-directions service. These are clearly marked **Apple Maps walking directions**, not Strava suggestions.
+- Apple Maps directions may not return routes in every area; no lines or distances are invented. Selecting a MapKit walk can open walking directions in Apple Maps.
 
-Install v1.3.0 over the old SearchFix v1.2.0 package, not alongside it. Keep StravaCompat v0.3.0 installed. The compatibility package is completely separate and unchanged.
+## Limits and testing
+
+This restores useful location-specific *walking route discovery* as a fallback, **not** Strava's original server-powered Suggestions UI or Premium route generation. A real Strava location-based SuggestedRoutes request has **not** been reverse-engineered or unlocked. The swipe-up panel is inside the add-on's MapKit browser; it is not the native Strava sheet.
+
+No receipt, entitlement, login-token, or HTTP-header changes. This source has not yet been tested on an iPhone. Build validation alone does not prove that MapKit results, GPS permission, and UI gestures work on-device.
+
+Install this package **over** Native Bridge 1.3.0; do not install both simultaneously. Keep StravaCompat v0.3.0 installed.
