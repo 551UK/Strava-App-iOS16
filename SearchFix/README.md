@@ -1,19 +1,26 @@
-# StravaSearch16 v1.0.1 — unobstructed route tools
+# Strava Search iOS16 v1.1.0 — follow a downloaded route with GPS
 
-This fixes an issue identified from the user's 03:40 iOS16 screenshot: the `Strava routes (15)` and `Share Log` overlay buttons were attached across the native Strava **Search locations** field, making the underlying field difficult or impossible to tap.
+The previous v1.0.1 MapKit **Route preview** displayed the geometry correctly, but had no Start/Follow control. This release adds a self-contained **Start following route** button inside that same map viewer.
 
-The two overlay controls now appear together on the **right side of the map**, below the native search and filter controls. They are draggable up/down as a pair using a swipe or drag on either button. This leaves the native search box accessible. The controls stay above Strava's modal views, but empty space is touch-transparent.
+## What starting a route does
 
-**Strava routes (N) is an actual clickable button from SearchFix**. Tap it (do not just tap the native orange route lines) to select the real SuggestedRoutes records downloaded by Strava. The selected record is handed to Strava's internal deep-link router **only when the returned routeUrl is already a recognised Strava route link**. This may still open checkout if Strava gates the page. No route IDs or subscription states are fabricated.
+- Requests the iPhone's normal **While Using the App** location authorization if needed. Never spoofs location or bypasses permission.
+- Shows the user's blue GPS dot, uses MapKit follow-with-heading mode and updates location on the displayed path.
+- Calculates the nearest segment on the **actual Strava polyline already returned by SuggestedRoutes**, and displays approximate remaining route distance and off-route deviation (metres).
+- A **Stop following** button stops active GPS updates. Closing the screen also stops the viewer's location updates.
+- Places the title in the safe area and adds a bottom status/button panel, correcting the prior screenshot's overlapping title and navigation elements.
+- Keeps map and route records in local process memory. No GPS samples or coordinates are saved to the tweak's diagnostics.
 
-All existing v1.0.0 networking, route navigation, call stack logging, dual-schema geometry preview and read-only public-route access logic are unchanged. Separate StravaCompat remains untouched.
+## Limits
+
+**Following is a read-only, self-contained GPS guide inside the SearchFix MapKit viewer**, not Strava's native subscriber-only route navigation. It does **not** start an activity recording, upload a route, create turn-by-turn instructions, provide voice guidance, or request access to subscription-only server APIs. The status is approximate (especially on overlapping loops or complex route branches), and GPS/map guidance should not be used as a sole source of safety-critical directions. The map updates while the viewer is active and the OS allows access.
 
 ## Test
 
-1. Install v1.0.1 over v1.0.0. Leave **StravaCompat → Version Headers OFF**.
-2. Reopen Strava Maps and verify Search locations at the top is now unobstructed. The two small SearchFix buttons should be on the **right-hand map area**.
-3. Tap the **Strava routes (N)** button. If routes are listed, tap one and note whether it opens a native detail page, a browser, a preview, an unsupported-URL notice, or another trial offer.
-4. If the controls cover a part of the map you need, **drag either button up or down**. This moves the pair.
-5. Share the log if the chosen route does not open. The relevant lines begin `NATIVE_ROUTE_SCAN`, `CHECKOUT_PRESENT` or `CHECKOUT_FRAME`.
+1. Install v1.1.0 over v1.0.1. Leave **StravaCompat → Version Headers OFF**.
+2. Open Maps, use the unobtrusive **Strava routes (N)** button, choose a route.
+3. On the map, tap **Start following route**. Approve While Using location access if prompted.
+4. The map should centre on the blue location marker and show your approximate deviation from the path and remaining distance. Press **Stop following** to end guidance.
+5. If you need native Strava recording instead, it is **not included** in this viewer; Strava's route-detail feature may still require a subscription.
 
-**Important:** The v1.0.0 screenshot showing 15 records and orange lines proves Strava has route records and displays polylines, **not** that native route-detail navigation was fixed. This is a UI-only convenience update, not a verified backend repair.
+All of v1.0.1's route data extraction, deep-link routing attempt, diagnostics, and draggable floating buttons remain unchanged.

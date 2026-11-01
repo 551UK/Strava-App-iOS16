@@ -1,9 +1,9 @@
 Package: com.551uk.stravasearch16
 Name: Strava Search iOS16 Diagnostics
-Version: 1.0.1
+Version: 1.1.0
 Architecture: iphoneos-arm64
 Depends: firmware (>= 16.0), mobilesubstrate
-Description: Draggable unobtrusive route-link tester and diagnostics overlay
+Description: Live GPS route-following map, plus Strava's original route parser and diagnostic overlay
 Maintainer: 551UK
 Author: 551UK
 Section: Tweaks

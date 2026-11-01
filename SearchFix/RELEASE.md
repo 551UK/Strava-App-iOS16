@@ -1,7 +1,7 @@
-SearchFix v1.0.1 — fixes floating buttons obstructing Strava's search field.
+v1.1.0 — user-requested **Start following route** mode.
 
-- Moves **Strava routes (N)** and **Share Log** into a compact, **draggable** pair on the right-hand map area.
-- Both buttons remain clickable; dragging either moves them together without taking control of the underlying Strava screen.
-- Preserves v1.0.0 route-list extraction, native deep-link experiment, geometry preview and checkout caller tracing.
-- Does not alter StravaCompat login, server entitlement, purchase flow or Strava's subscription UI. Leave **Version Headers OFF**.
-- Compiled build; native route-detail opening still requires device verification.
+- Adds a Start/Stop GPS-following control to the downloaded-route MapKit preview, with the blue location dot, heading follow, approximate remaining distance and off-route distance.
+- Fixes overlap between the title and the navigation bar using safe-area layout; a bottom status panel contains the control.
+- Requires normal iOS location permission; location is not fabricated and no coordinates are stored in diagnostic logs.
+- Keeps the original Strava route extraction, checkout trace and draggable overlay. Separate StravaCompat unchanged. **Version Headers must stay OFF**.
+- The feature is independent MapKit route following, **not native Strava activity recording or subscriber navigation**. It has only been compilation-tested, not field-tested.
