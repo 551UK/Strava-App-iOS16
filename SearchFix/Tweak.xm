@@ -169,12 +169,17 @@ static BOOL IsOurController(UIViewController *controller) {
     return NO;
 }
 static UIWindow *ActiveWindow(void) {
-    UIWindow *key=[UIApplication sharedApplication].keyWindow;
-    if (key) return key;
-    for (UIWindow *window in [UIApplication sharedApplication].windows)
-        if (!window.hidden && window.windowLevel == UIWindowLevelNormal)
-            return window;
-    return nil;
+    UIApplication *application=[UIApplication sharedApplication];
+    UIWindow *fallback=nil;
+    for (UIScene *scene in application.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.hidden || window.windowLevel != UIWindowLevelNormal) continue;
+            if (window.isKeyWindow) return window;
+            if (!fallback) fallback=window;
+        }
+    }
+    return fallback;
 }
 static BOOL ViewHasText(UIView *view,NSString *needle) {
     if (!view || view.hidden || view.alpha<0.05) return NO;
