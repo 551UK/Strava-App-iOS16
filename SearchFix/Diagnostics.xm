@@ -4,6 +4,9 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 
+// Optional, version-only request identity adapter for route/search requests.
+extern NSURLRequest *SSCBridgeRequest(NSURLRequest *request, void (*logFn)(NSString *));
+
 // Private local diagnostics; never save headers, cookies, tokens,
 // raw URL paths/queries, request/response bodies, coordinates or search text.
 // GraphQL JSON is inspected only for operation names and safe error codes.
@@ -382,7 +385,7 @@ static SSDiagnostics *SDiagnostics;
         SInspectBody(url,data);
         if (completion) completion(data,response,error);
     };
-    return %orig(request,wrapped);
+    return %orig(SSCBridgeRequest(request,SLog),wrapped);
 }
 - (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url
       completionHandler:(void (^)(NSData *,NSURLResponse *,NSError *))completion {
@@ -402,7 +405,26 @@ static SSDiagnostics *SDiagnostics;
         SFinish(url,response,error);
         if (completion) completion(file,response,error);
     };
-    return %orig(request,wrapped);
+    return %orig(SSCBridgeRequest(request,SLog),wrapped);
+}
+- (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request {
+    return %orig(SSCBridgeRequest(request,SLog));
+}
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)body {
+    return %orig(SSCBridgeRequest(request,SLog),body);
+}
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request
+    fromData:(NSData *)body
+    completionHandler:(void (^)(NSData *,NSURLResponse *,NSError *))completion {
+    NSURL *url=request.URL;
+    void (^wrapped)(NSData *,NSURLResponse *,NSError *)=
+      ^(NSData *data,NSURLResponse *response,NSError *error){
+        SFinish(url,response,error);
+        SInspectGraphQLResponse(url,data);
+        SInspectBody(url,data);
+        if (completion) completion(data,response,error);
+      };
+    return %orig(SSCBridgeRequest(request,SLog),body,wrapped);
 }
 %end
 %hook NSURLSessionTask

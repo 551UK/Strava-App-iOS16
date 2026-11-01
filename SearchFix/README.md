@@ -1,38 +1,23 @@
-# Strava Search iOS16 — Diagnostic Add-on
+# Strava Search iOS16 — Experimental Native Bridge v0.5.0
 
-Standalone iOS 16 rootless tweak for **Strava 422.0.1**. Designed to diagnose two failures: tapping **Maps → Search locations** and opening a route, when both display **Try Again**.
+This builds on the *existing* StravaSearch16 package for Strava 422.0.1 on iOS 16. The user's separate StravaCompat tweak (login compatibility) is unchanged.
 
-**0.4.0 is a diagnostic prerequisite for the planned bridge, not a route/search fix.** It preserves the native UI and leaves StravaCompat unchanged.
+## Why this is a controlled experiment
 
-## What is logged
+Comparison of the supplied decrypted Strava 422.0.1 and 487.0.0 IPAs identified newer geocoding and route-detail implementations, but the older `SuggestedRoutes` GraphQL list succeeds and `routes/details_v2` exists in both builds. Therefore, blindly rewriting endpoints or importing 487's Swift classes into iOS 16 is not justified.
 
-- View-controller transitions, including route, Maps and checkout/loading screens
-- Request host, method, broad category, HTTP status and response MIME type
-- Static endpoint labels for recognised search/geocoding paths (no raw paths)
-- Bounded JSON structure summaries: predefined field names, types and array lengths only
-- Response inspection for compatible session delegates as well as completion blocks
-- Network errors, including URLSession domains and codes
-- GraphQL operation names where available and error **codes only** (never error messages)
-- Snapshots of active network tasks and response statuses when the log is shared
+StravaCompat currently substitutes a newer version **in all selected network headers**, which may cause the service to select responses unsuited to 422.0.1. This version adds a narrowly targeted request-identity adapter. It attempts to restore the actual `422.0.1` client version **only** on route, search/geocoding and checkout endpoint requests, including corresponding GraphQL operations. Authentication/login requests are not targeted. It does not change an account's subscription entitlements.
 
-**Privacy:** No URLs with paths or query strings, passwords, tokens, cookies, authorisation headers, search text, route names, precise coordinates, or raw request/response bodies are written to the log. JSON is inspected in memory for structural summaries; GraphQL error codes are also recorded. Bodies are bounded to 1 MiB per relevant task and discarded after completion.
+`BRIDGE_IDENTITY` log entries report how many eligible header values were found and whether the changes survived other installed header hooks. If `matched=0`, this experiment did **not** alter that request. If `matched>0` but `applied=0`, another hook is likely overriding it. These counters are intentionally explicit; installing the build alone **does not prove a repair**.
 
-## How to reproduce
+## Testing
 
-1. Install with Sileo or Zebra over the earlier StravaSearch16 add-on. Keep your working StravaCompat installed.
-2. Fully quit Strava and reopen it.
-3. Tap **Maps → Search locations** to reproduce **Try Again**.
-4. Use the floating **Share Log** / **Share Diagnostics** button to save the log.
-5. Return to Maps. Tap a route (for example, the route you showed in the screenshot) and reproduce **Try Again**.
-6. Tap **Share Log** again. Send the second file, which contains both tests.
+1. Install v0.5.0 over the existing SearchFix add-on; keep StravaCompat installed.
+2. Force-close Strava and launch normally.
+3. Test Maps → Search locations, clicking a visible suggested route, and the free-trial screen.
+4. Use **Share Log** to export `diagnostics.txt` after all three failures or successes.
+5. Compare UI behaviour and `BRIDGE_IDENTITY` / `HTTP_` lines to the previous v0.4.0 log.
 
-The sharing button stays available even if Strava renders Try Again using a view that cannot be inspected by UIKit.
+**Rollback:** uninstall only `com.551uk.stravasearch16`. To disable just the bridge, use Filza to create an empty file `Library/Caches/StravaSearch16/disable-bridge.flag` inside Strava's app data container and restart the app.
 
-If the button doesn't appear, find the log under Strava's own sandbox at:
-`/var/mobile/Containers/Data/Application/<Strava UUID>/Library/Caches/StravaSearch16/diagnostics.txt`.
-
-The old replacement MapKit UI is excluded from the build. This diagnostic add-on neither modifies the StravaCompat login code nor fixes the backend by itself. Use the log to determine the failure before changing requests.
-
-## Build
-
-Run `cd SearchFix && make clean package FINALPACKAGE=1` with Theos and an iOS 16 SDK. Add-on ID: `com.551uk.stravasearch16`.
+This is experimental request-version reconciliation, **not a verified route/search fix**. It does not fake entitlements, replace the Strava interface, or alter response content. All logs omit passwords, auth headers, URL query text, route titles, and coordinates.
