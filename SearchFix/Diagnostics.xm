@@ -184,7 +184,6 @@ static SSDiagnostics *SDiagnostics;
             SShareButton.titleLabel.font=[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
             [SShareButton addTarget:self action:@selector(share:) forControlEvents:UIControlEventTouchUpInside];
         }
-        CGRect bounds=window.bounds;
         SShareButton.frame=CGRectMake(18,MAX(window.safeAreaInsets.top+14,85),155,37);
         if (SShareButton.superview!=window) [window addSubview:SShareButton];
         [window bringSubviewToFront:SShareButton];
@@ -254,7 +253,7 @@ static SSDiagnostics *SDiagnostics;
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     NSString *name=NSStringFromClass([self class]);
-    if (!name || SLastScreen && CFAbsoluteTimeGetCurrent()-SLastScreen<0.15) return;
+    if (!name || (SLastScreen && CFAbsoluteTimeGetCurrent()-SLastScreen<0.15)) return;
     SLastScreen=CFAbsoluteTimeGetCurrent();
     // Type names only, no user-entered text or route names.
     SLog([NSString stringWithFormat:@"UI_CONTROLLER %@",name]);

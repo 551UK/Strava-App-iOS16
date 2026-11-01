@@ -34,8 +34,8 @@ jobs:
           dpkg-deb -x "$1" "$RUNNER_TEMP/searchfix"
           root="$RUNNER_TEMP/searchfix/var/jb/Library/MobileSubstrate/DynamicLibraries"
           test -s "$root/StravaSearch16.dylib"
-          strings "$root/StravaSearch16.dylib" | grep -q "UI_TRY_AGAIN"
-          strings "$root/StravaSearch16.dylib" | grep -q "HTTP_FINISH"
+          strings "$root/StravaSearch16.dylib" | grep -F "UI_TRY_AGAIN" >/dev/null
+          strings "$root/StravaSearch16.dylib" | grep -F "HTTP_FINISH" >/dev/null
           test -s "$root/StravaSearch16.plist"
           plutil -lint "$root/StravaSearch16.plist"
           xcrun lipo "$root/StravaSearch16.dylib" -verify_arch arm64
