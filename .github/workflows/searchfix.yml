@@ -1,0 +1,44 @@
+name: Build Strava Search iOS16 add-on
+on:
+  push:
+    branches: [main]
+    paths:
+      - "SearchFix/**"
+      - ".github/workflows/searchfix.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Theos
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Build standalone search fix
+        working-directory: SearchFix
+        run: make clean package FINALPACKAGE=1
+      - name: Validate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install dpkg
+          set -- SearchFix/packages/*.deb
+          test "$#" -eq 1
+          test "$(dpkg-deb -f "$1" Package)" = "com.551uk.stravasearch16"
+          test "$(dpkg-deb -f "$1" Version)" = "0.1.0"
+          test "$(dpkg-deb -f "$1" Architecture)" = "iphoneos-arm64"
+          dpkg-deb -x "$1" "$RUNNER_TEMP/searchfix"
+          root="$RUNNER_TEMP/searchfix/var/jb/Library/MobileSubstrate/DynamicLibraries"
+          test -s "$root/StravaSearch16.dylib"
+          test -s "$root/StravaSearch16.plist"
+          plutil -lint "$root/StravaSearch16.plist"
+          xcrun lipo "$root/StravaSearch16.dylib" -verify_arch arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StravaSearch16-0.1.0-rootless
+          path: SearchFix/packages/*.deb
+          if-no-files-found: error
