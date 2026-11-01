@@ -1,8 +1,9 @@
-v0.7.0 — diagnostic UI above Strava modal offers.
+**v0.8.0 — read-only downloaded route geometry preview**
 
-- Fixes hidden **Share Log** and **Public routes (N)** controls by placing them in a transparent high-level UIWindow. Empty overlay areas pass touches through.
-- Logs `PUBLIC_ROUTE_SCAN nodes/valid/missing/rejected` so we can establish whether Strava's SuggestedRoutes response contains public route URLs.
-- Adds **Close offer**, a manual dismiss action equivalent to the X on the trial offer. This does not unlock subscription features.
-- Keeps the native app, StravaCompat, purchase state and permissions unchanged. **Version Headers must remain OFF.**
-- The previously supplied Premium 375 IPA was inspected as a reference, but its injected network hook does not establish present-day route availability and has not been copied.
-- Device behaviour has not yet been verified; if overlays remain absent, use Filza to export the diagnostics log.
+- Fixes the earlier `Public routes (0)` limitation: Strava's `routeUrl` need not be a public browser link, but the SuggestedRoutes response also contains encoded route line data.
+- Decodes `routePolylineData.legs[].paths[].polyline.data` locally and displays routes in a MapKit viewer reached through **Route previews (N)** on a floating overlay.
+- Keeps **Share Log** and logs `ROUTE_PREVIEW_SCAN` counts so missing geometry can be diagnosed.
+- Removes the redundant Close offer button; Strava's own X remains.
+- No fake free trial or subscription, checkout tampering, new API calls, injected purchases, or network-response rewriting.
+- The original StravaCompat tweak is unchanged; **Version Headers must remain OFF**.
+- This build has passed automated compilation only. It is not yet tested on a device and does not restore subscriber-only route navigation.
