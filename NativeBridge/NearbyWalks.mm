@@ -155,6 +155,7 @@ extern "C" void SSCShowSearchScreen(UIViewController *presenter);
     if (self.expanded)
         self.sheetHeight.constant=MIN(470,MAX(280,self.view.bounds.size.height*0.62));
 }
+- (void)closeBrowser { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (void)searchAnotherPlace {
     if (self.navigationController.viewControllers.count>1)
         [self.navigationController popViewControllerAnimated:YES];
@@ -409,8 +410,7 @@ extern "C" void SSCShowNearbyWalksFromItem(UIViewController *presenter, MKMapIte
         nav.modalPresentationStyle=UIModalPresentationFullScreen;
         screen.navigationItem.leftBarButtonItem=[[UIBarButtonItem alloc]
           initWithBarButtonSystemItem:UIBarButtonSystemItemDone
-          target:nav action:@selector(dismissViewControllerAnimated:completion:)];
-        // Done is installed below using a simple block-free target.
+          target:screen action:@selector(closeBrowser)];
         [presenter presentViewController:nav animated:YES completion:nil];
     }
 }
